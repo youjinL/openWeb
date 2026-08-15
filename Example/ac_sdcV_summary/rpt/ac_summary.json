@@ -1,0 +1,18 @@
+{
+    "Runset Log Check": {
+        "Status": "Pass",
+        "Report": "/home/yjlizq/mywork/openWeb/Example/log/runset.log"
+    },
+    "Read SDC Check": {
+        "Status": "Fail",
+        "Report": "/home/yjlizq/mywork/openWeb/Example/log/read_ac.log"
+    },
+    "CDC Check": {
+        "Status": "Pass",
+        "Report": "/home/yjlizq/mywork/openWeb/Example/log/cdc_timing.log"
+    },
+    "Clock Speed Check": {
+        "Status": "To be review",
+        "Report": "/home/yjlizq/mywork/openWeb/Example/log/ac_speed.xlsx"
+    }
+}
