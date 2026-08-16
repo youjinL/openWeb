@@ -130,7 +130,7 @@ router.get('/:rootId/:mode/:item/stream', (req, res) => {
           type: part.type === 'reasoning' ? 'reasoning' : 'text',
         });
       }
-    } else if (eventName === 'message.updated' && data?.info?.time?.complete) {
+    } else if (eventName === 'message.updated' && data?.info?.time?.completed) {
       send('done', { messageID: data?.info?.id });
       currentAIMessageID = null;
     } else if (eventName === 'message.part.error') {

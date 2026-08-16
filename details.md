@@ -19,7 +19,7 @@ OpenWeb is an end-to-end web tool for IC verification (SDC/CDC) report review. I
 
 ```
 openWeb/
-├── 开发需求文档.md          # Requirement specification (Chinese)
+├── development.md          # Requirement specification
 ├── README.md                # Install / run / feature overview
 ├── details.md               # This file
 ├── package.json             # npm workspaces (server, web)
@@ -78,7 +78,7 @@ openWeb/
 
 | File | Role |
 |---|---|
-| `开发需求文档.md` | The single source of truth for requirements (in Chinese): features, decisions, conventions, and behavior rules captured during requirement Q&A. |
+| `development.md` | The single source of truth for requirements (in Chinese): features, decisions, conventions, and behavior rules captured during requirement Q&A. |
 | `README.md` | Quick-start guide: environment, install, start/stop, feature summary, ports, storage. |
 | `details.md` | This file: documentation layout + per-script function and feature reference. |
 

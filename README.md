@@ -2,7 +2,7 @@
 
 对 IC 验证（SDC/CDC）报告的三模式（**ac / dc / func**）验证结果进行 **解析 → 逐行检查 → AI 辅助分析 → waive 输出** 的全链路 Web 工具。
 
-详细需求见 [`开发需求文档.md`](./开发需求文档.md)。
+详细需求见 [`development.md`](./development.md)。
 
 ## 环境要求
 

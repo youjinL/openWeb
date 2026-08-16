@@ -30,8 +30,7 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
   const [sending, setSending] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const esRef = useRef<EventSource | null>(null);
-  const pendingRef = useRef(pending);
-  pendingRef.current = pending;
+  const pendingRef = useRef<Record<string, string>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const scrollBottom = () => {
@@ -70,7 +69,11 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
     esRef.current = es;
     es.addEventListener('part', (ev: any) => {
       const d = JSON.parse(ev.data);
-      setPending((prev) => ({ ...prev, [d.messageID]: (prev[d.messageID] ?? '') + (d.text ?? '') }));
+      pendingRef.current = {
+        ...pendingRef.current,
+        [d.messageID]: (pendingRef.current[d.messageID] ?? '') + (d.text ?? ''),
+      };
+      setPending(pendingRef.current);
       scrollBottom();
     });
     es.addEventListener('done', () => {
@@ -100,13 +103,11 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
   }, [input, rootId, mode, item]);
 
   const finalizeDone = useCallback(() => {
-    setMsgs((prev) => {
-      const next = [...prev];
-      for (const [id, text] of Object.entries(pendingRef.current)) {
-        if (text) next.push({ id, role: 'assistant', text });
-      }
-      return next;
-    });
+    const entries = Object.entries(pendingRef.current).filter(([, text]) => text);
+    if (entries.length) {
+      setMsgs((prev) => [...prev, ...entries.map(([id, text]) => ({ id, role: 'assistant', text }))]);
+    }
+    pendingRef.current = {};
     setPending({});
     setSending(false);
   }, []);
