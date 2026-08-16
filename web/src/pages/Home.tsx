@@ -18,7 +18,7 @@ const FILTER_OPTIONS = [
 
 function classify(status: string): StatusKey {
   const s = String(status).toLowerCase();
-  if (s === 'pass') return 'pass';
+  if (s === 'pass' || s.includes('waive')) return 'pass';
   if (s === 'fail') return 'fail';
   if (s.includes('review')) return 'review';
   return 'other';
@@ -37,6 +37,8 @@ function chipClass(status: string): string {
   return key;
 }
 
+const clearedWaiveDirRoots = new Set<number>();
+
 export default function Home() {
   const [roots, setRoots] = useState<RootInfo[]>([]);
   const [rootId, setRootId] = useState<number | null>(null);
@@ -45,6 +47,7 @@ export default function Home() {
   const [addOpen, setAddOpen] = useState(false);
   const [newPath, setNewPath] = useState('');
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const [nameFilter, setNameFilter] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -56,12 +59,17 @@ export default function Home() {
 
   useEffect(() => {
     if (rootId == null) return;
+    if (!clearedWaiveDirRoots.has(rootId)) {
+      clearedWaiveDirRoots.add(rootId);
+      api.clearWaiveDir(rootId).catch(() => {});
+    }
     setLoading(true);
     api
       .scan(rootId)
       .then((s) => {
         setScan(s);
         setFilters({});
+        setNameFilter('');
       })
       .catch((e) => message.error(String(e)))
       .finally(() => setLoading(false));
@@ -94,21 +102,28 @@ export default function Home() {
     if (rootId == null) return;
     Modal.confirm({
       title: 'Delete root',
-      content: 'This will also delete the waive states and copilot session mappings for this root. Continue?',
+      content: 'This will also delete the waive states and the opencode copilot sessions for this root. Continue?',
       onOk: async () => {
-        await api.deleteRoot(rootId);
-        const r = await api.roots();
-        setRoots(r);
-        setRootId(r.length ? r[0].id : null);
+        const r = await api.deleteRoot(rootId);
+        if (r.deletedOpencodeSessions != null) {
+          message.success(`Root deleted (${r.deletedOpencodeSessions} opencode session(s) removed)`);
+        }
+        const roots = await api.roots();
+        setRoots(roots);
+        setRootId(roots.length ? roots[0].id : null);
         setScan(null);
       },
     });
   };
 
   const visibleItems = (m: ModeInfo) => {
-    const f = filters[m.mode] ?? 'all';
-    if (f === 'all') return m.items;
-    return m.items.filter((it) => classify(it.status) === f);
+    const sf = filters[m.mode] ?? 'all';
+    const nf = nameFilter.trim().toLowerCase();
+    return m.items.filter((it) => {
+      if (sf !== 'all' && classify(it.status) !== sf) return false;
+      if (nf && !it.name.toLowerCase().includes(nf)) return false;
+      return true;
+    });
   };
 
   const overview = () => {
@@ -182,6 +197,13 @@ export default function Home() {
             <section className="overview-block">
               <div className="overview-head">
                 <span className="overview-title">Sign-off overview</span>
+                <Input.Search
+                  placeholder="Filter checks by name"
+                  allowClear
+                  value={nameFilter}
+                  onChange={(e) => setNameFilter(e.target.value)}
+                  style={{ width: 260, alignSelf: 'center' }}
+                />
                 <span className="overview-total">{overview().total} checks</span>
               </div>
               <div className="overview-stats">
@@ -225,7 +247,7 @@ export default function Home() {
                     <div className="mode-items">
                       {items.length === 0 && (
                         <div className="bench-empty" style={{ padding: 24 }}>
-                          <Typography.Text type="secondary">No items</Typography.Text>
+                          <Typography.Text type="secondary">No matching items</Typography.Text>
                         </div>
                       )}
                       {items.map((item) => (

@@ -1,9 +1,23 @@
+function envInt(name, fallback) {
+  const v = process.env[name];
+  if (v == null || v === '') return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function envStr(name, fallback = '') {
+  const v = process.env[name];
+  return v == null || v === '' ? fallback : v;
+}
+
 export default {
-  webPort: 5173,
-  opencodePort: 4096,
-  hostname: '127.0.0.1',
+  webPort: envInt('OPENWEB_PORT', 5173),
+  hostname: envStr('OPENWEB_HOST', '0.0.0.0'),
+  opencodePort: envInt('OPENCODE_PORT', 4096),
+  opencodeBaseUrl: envStr('OPENCODE_BASE_URL', '').replace(/\/+$/, ''),
+  opencodeToken: envStr('OPENCODE_TOKEN', ''),
   maxXlsxRows: 100000,
-  dataDir: new URL('../data/', import.meta.url).pathname,
+  dataDir: envStr('OPENWEB_DATA_DIR', new URL('../data/', import.meta.url).pathname),
   defaultPrompts: [
     {
       name: 'Generic Analysis',

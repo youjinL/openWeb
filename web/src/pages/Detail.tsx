@@ -6,7 +6,6 @@ import {
   Input,
   Checkbox,
   Switch,
-  Radio,
   message,
   Modal,
   Tooltip,
@@ -75,6 +74,7 @@ export default function Detail() {
   const [filter, setFilter] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [invert, setInvert] = useState(false);
+  const [hideWaived, setHideWaived] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [waiveDirModal, setWaiveDirModal] = useState(false);
   const [reasonModal, setReasonModal] = useState(false);
@@ -123,10 +123,13 @@ export default function Detail() {
 
   const visibleLines = useMemo(() => {
     if (!detail) return [];
-    if (patterns.length === 0) return detail.lines;
     const hit = (text: string) => patterns.every((p) => p.test(text));
-    return detail.lines.filter((l) => (invert ? !hit(l.text) : hit(l.text)));
-  }, [detail, patterns, invert]);
+    return detail.lines.filter((l) => {
+      if (hideWaived && l.waived) return false;
+      if (patterns.length === 0) return true;
+      return invert ? !hit(l.text) : hit(l.text);
+    });
+  }, [detail, patterns, invert, hideWaived]);
 
   const selectableInView = useMemo(
     () => visibleLines.filter((l) => !l.isComment && !l.isEmpty && !l.waived),
@@ -155,6 +158,7 @@ export default function Detail() {
     setSelected(new Set());
     setCaseSensitive(false);
     setInvert(false);
+    setHideWaived(false);
     navigate(`/detail?rootId=${rootId}&mode=${mode}&item=${encodeURIComponent(name)}`);
   };
 
@@ -216,6 +220,7 @@ export default function Detail() {
     'To be review': 's-review',
     Unknown: 's-neutral',
     Error: 's-error',
+    'pass by waive': 's-pass',
   };
 
   if (loading || !detail) {
@@ -284,21 +289,21 @@ export default function Detail() {
             <label className="filter-label">
               Case sensitive <Switch size="small" checked={caseSensitive} onChange={setCaseSensitive} />
             </label>
-            <Radio.Group
-              value={invert ? 'exclude' : 'include'}
-              onChange={(e) => setInvert(e.target.value === 'exclude')}
-              size="small"
-            >
-              <Radio.Button value="include">Match</Radio.Button>
-              <Radio.Button value="exclude">Exclude</Radio.Button>
-            </Radio.Group>
+            <label className="filter-label">
+              Exclude matches <Switch size="small" checked={invert} onChange={setInvert} />
+            </label>
+            <label className="filter-label">
+              Hide waived <Switch size="small" checked={hideWaived} onChange={setHideWaived} />
+            </label>
           </div>
           <div className="detail-actions">
-            <Button icon={<CheckSquareOutlined />} onClick={selectAllVisible}>
-              Select all visible rows ({selectableInView.length})
-            </Button>
-            <Button icon={<ClearOutlined />} onClick={clearSelection}>
-              Clear selection ({selected.size})
+            <Button
+              icon={selected.size === 0 ? <CheckSquareOutlined /> : <ClearOutlined />}
+              onClick={() => (selected.size === 0 ? selectAllVisible() : clearSelection())}
+            >
+              {selected.size === 0
+                ? `Select all visible rows (${selectableInView.length})`
+                : `Clear selection (${selected.size})`}
             </Button>
             <Button type="primary" icon={<ExportOutlined />} onClick={onExport} loading={exporting}>
               Export Waiver

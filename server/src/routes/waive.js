@@ -18,6 +18,12 @@ router.get('/:rootId/waive-dir', (req, res) => {
   res.json({ waive_dir: root.waive_dir });
 });
 
+router.delete('/:rootId/waive-dir', (req, res) => {
+  const rootId = Number(req.params.rootId);
+  setWaiveDir(rootId, null);
+  res.json({ waive_dir: null });
+});
+
 router.post('/:rootId/waive-dir', (req, res) => {
   const rootId = Number(req.params.rootId);
   const dir = String(req.body?.dir ?? '').trim();

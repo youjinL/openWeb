@@ -7,6 +7,10 @@ let baseUrl = null;
 let serverProc = null;
 let port = config.opencodePort;
 
+function authHeaders() {
+  return config.opencodeToken ? { authorization: `Bearer ${config.opencodeToken}` } : {};
+}
+
 function healthUrl(p) {
   return `http://127.0.0.1:${p}/global/health`;
 }
@@ -34,6 +38,24 @@ async function waitHealthy(p, tries = 40) {
 
 export async function ensureServer() {
   if (baseUrl) return baseUrl;
+  if (config.opencodeBaseUrl) {
+    baseUrl = config.opencodeBaseUrl;
+    try {
+      const res = await fetch(`${baseUrl}/global/health`, {
+        headers: authHeaders(),
+        signal: AbortSignal.timeout(3000),
+      });
+      const body = await res.json().catch(() => null);
+      if (res.ok && body?.healthy === true) {
+        console.log(`[opencode] connected to remote server at ${baseUrl}`);
+      } else {
+        console.warn(`[opencode] remote server health check failed (${res.status}) at ${baseUrl}; continuing anyway`);
+      }
+    } catch (e) {
+      console.warn(`[opencode] remote server unreachable at ${baseUrl}: ${e.message}; continuing anyway`);
+    }
+    return baseUrl;
+  }
   if (await isOpenCodeRunning(port)) {
     baseUrl = `http://127.0.0.1:${port}`;
     console.log(`[opencode] connected to existing server at ${baseUrl}`);
@@ -108,7 +130,7 @@ export function getServerPort() {
 async function ocFetch(pathname, options = {}) {
   const url = await ensureServer();
   const res = await fetch(url + pathname, {
-    headers: { 'content-type': 'application/json', ...(options.headers || {}) },
+    headers: { 'content-type': 'application/json', ...authHeaders(), ...(options.headers || {}) },
     ...options,
   });
   if (!res.ok) {
@@ -144,6 +166,12 @@ export function sendMessageAsync(id, body) {
   });
 }
 
+export function deleteSession(id) {
+  return ocFetch(`/session/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
 /* ---------------- SSE event proxy ---------------- */
 
 const eventsBus = new EventEmitter();
@@ -158,7 +186,10 @@ function startEventStream() {
   const reader = (async () => {
     while (!sseController.signal.aborted) {
       try {
-        const res = await fetch(`${base}/event`, { signal: sseController.signal });
+        const res = await fetch(`${base}/event`, {
+          headers: authHeaders(),
+          signal: sseController.signal,
+        });
         if (!res.ok || !res.body) throw new Error('bad event stream');
         const stream = res.body.getReader();
         const decoder = new TextDecoder();

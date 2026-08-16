@@ -1,172 +1,210 @@
-# 开发需求文档
+# OpenWeb — Development Requirements
 
-> 本文档是后续开发的**唯一依据**。所有实现细节以此为准。
+> This document is the **single source of truth** for the project's requirements. All implementation and future changes must be consistent with it.
 
-## 1. 项目概述
+## 1. Project Overview
 
-一个交互式 Web 应用，实现对 IC 验证（SDC/CDC）报告的三模式（**ac / dc / func**）验证结果进行**统一解析 → 逐行检查 → AI 辅助分析 → waive 输出**的全链路工具。
+An interactive web application for IC verification (SDC/CDC) report review that unifies the three-mode (**ac / dc / func**) flow of **parse → line-by-line inspection → AI-assisted analysis → waive export** into one tool.
 
-- 解析 `{mode}_sdcV_summary/rpt/{mode}_summary.json` 报告，按 mode 展示各 check item 及其状态
-- 每个 item 进入详情页，逐行展示 report 内容，支持正则匹配/反匹配过滤、逐行勾选 waive、生成 waive list
-- 内嵌 **Agent Copilot** 悬浮窗，通过 `opencode serve` 的 HTTP API 实现按 item 的对话 session，实现 AI 协助分析
-- 目标场景为本地/单机使用，运行于 WSL Ubuntu 环境，浏览器通过 `localhost` 访问
+- Parses `{mode}_sdcV_summary/rpt/{mode}_summary.json` reports and presents every check item with its status per mode.
+- Each item has a detail page rendering the report line by line, with regex filtering, per-row waive selection, and waive-list generation.
+- A built-in **Agent Copilot** floating panel uses `opencode serve`'s HTTP API to provide one conversational session per check item for AI-assisted analysis.
+- Target environment: local / single-user use on WSL Ubuntu, accessed from a browser via `localhost`.
 
-## 2. 技术栈
+## 2. Technology Stack
 
-| 层 | 选型 | 说明 |
+| Layer | Choice | Notes |
 |---|---|---|
-| 前端 | React 18 + Vite + TypeScript | 单页应用 |
-| UI | Ant Design + 自定义样式 | 表格、对话框、树形目录浏览 |
-| 后端 | Node.js + Express | 报告解析、waive 读写、session 代理 |
-| 数据库 | SQLite（better-sqlite3） | waive 状态、根目录配置、item↔session 映射 |
-| 文件解析 | 内置 fs 读文本；`csv-parse` 解析 CSV；`exceljs` 解析 xlsx | |
-| AI 集成 | opencode HTTP Server API（`opencode serve`） | session 管理复用 opencode 原生能力 |
-| 流式输出 | SSE（后端代理 opencode 事件流 → 前端 EventSource） | |
+| Frontend | React 18 + Vite + TypeScript | SPA |
+| UI | Ant Design 5 + custom CSS design system | tables, modals, switches, dialogs |
+| Backend | Node.js + Express (ESM) | report scan, waive read/write, copilot proxy |
+| Database | SQLite (`better-sqlite3`) | waive state, root directories, item↔session mapping |
+| File parsing | built-in fs text read; `csv-parse` for CSV; `exceljs` for xlsx | |
+| AI integration | opencode HTTP Server API (`opencode serve`) | session lifecycle managed by opencode |
+| Streaming | SSE (backend proxies the opencode event stream to the frontend) | |
 
-## 3. 架构
+## 3. Architecture
 
 ```
-浏览器 (React SPA)
+Browser (React SPA)
    │  REST + SSE
    ▼
-Web 后端 (Express, :5173)  ── SQLite
+Web backend (Express, :5173)  ── SQLite
    │  HTTP Server API
    ▼
-opencode serve (:4096)  ← 后端启动时自动拉起
+opencode serve (:4096)   ← auto-spawned by the backend on boot
 ```
 
-- 后端负责：目录/报告扫描、report 文件读取与格式转换、waive 文件读写、item↔session 映射持久化、opencode 代理
-- opencode 负责：对话 session 的生命周期与消息存储（复用其原生 session 能力）
-- Web 仅作为信息传输与显示窗口
+- Backend: directory/report scanning, report reading & format conversion, waive file IO, item↔session mapping persistence, opencode proxy.
+- opencode: conversational session lifecycle and message storage (reuses its native session capability).
+- Web: transport and display only.
 
-## 4. 目录结构
+## 4. Directory Structure
 
 ```
 openWeb/
-├── 开发需求文档.md
-├── package.json          # root scripts（dev / start）
-├── server/               # Express 后端
-│   ├── index.js          # 入口：启动服务 + 拉起 opencode serve
-│   ├── config/           # 配置（端口、预制 prompt 模板）
-│   ├── routes/           # roots / modes / waive / copilot / browse
-│   ├── services/
-│   │   ├── report.js     # 扫描 & 解析 summary.json
-│   │   ├── loader.js     # 读取 text/csv/xlsx → 文本行
-│   │   ├── waive.js      # waive 文件读写
-│   │   └── opencode.js   # opencode API 客户端 + SSE 代理
-│   └── db.js             # better-sqlite3
-└── web/                  # React 前端 (Vite)
+├── development.md          # requirements (this file)
+├── README.md               # usage & deployment
+├── details.md              # delivery / implementation details
+├── package.json            # root scripts (dev / start / build)
+├── scripts/                # start.sh / stop.sh (background server)
+├── Example/                # sample data
+├── server/                 # Express backend
+│   ├── index.js            # entry: serve + spawn opencode serve
+│   ├── config.js           # ports, limits, default copilot prompt
+│   ├── db.js               # better-sqlite3 schema
+│   ├── routes/             # roots / modes / waive / copilot / browse / file
+│   └── services/
+│       ├── report.js       # scan & parse summary.json
+│       ├── loader.js       # read text/csv/xlsx → lines
+│       ├── waive.js        # waive file IO + persisted state
+│       └── opencode.js     # opencode API client + SSE proxy
+└── web/                    # React frontend (Vite)
 ```
 
-## 5. 数据模型
+## 5. Data Model
 
-### 5.1 报告扫描
-- 根目录 `R` 下按固定规则查找：`{R}/{mode}_sdcV_summary/rpt/{mode}_summary.json`，`mode ∈ {ac, dc, func}`
-- 存在的 mode 即展示（支持只有 1~2 个 mode）；找不到视为该 mode 不存在
-- summary.json 结构（实测）：
-```json
-{ "检查项名": { "Status": "Pass/Fail/To be review/...", "Report": "/abs/path/to/report" } }
-```
-- Status 值不做硬编码约束，原样展示；首页按状态着色（Pass=绿、Fail=红、To be review=橙、其他=蓝）
+### 5.1 Report scanning
+- Root directory `R`; lookup rule: `{R}/{mode}_sdcV_summary/rpt/{mode}_summary.json`, `mode ∈ {ac, dc, func}`.
+- Existing modes are displayed (1–3 modes are all valid); a missing file means the mode is absent.
+- `summary.json` structure:
+  ```json
+  { "check item name": { "Status": "Pass/Fail/To be review/...", "Report": "/abs/path/to/report" } }
+  ```
+- `Status` values are not hard-coded; unknown values render as-is with a neutral style. Known buckets: pass / fail / review / other.
 
-### 5.2 report 内容加载（详情页）
-- Report 字段指向本地文件；按扩展名处理：
-  - `.log/.txt/.rpt/无扩展名` → 按行读取文本
-  - `.csv` → csv-parse 解析，每行单元格以 **TAB** 拼接为一行文本
-  - `.xlsx` → exceljs 解析首个 sheet，每行单元格以 TAB 拼接为一行文本
-- 文件不存在时：显示占位提示 + 该行不可勾选
-- 行属性：`{ lineNo, text, isComment(以#开头), isEmpty }`
+### 5.2 Report line loading (detail page)
+- The `Report` field points to a local file; dispatch by extension:
+  - `.log/.txt/.rpt/no extension` → read as text lines
+  - `.csv` → parsed with `csv-parse`, cells joined with **TAB** into one line
+  - `.xlsx` → first sheet parsed with `exceljs`, cells joined with **TAB**, capped at a configurable row limit (default 100 000)
+- Missing file → placeholder message; lines are not selectable.
+- Line shape: `{ lineNo, text, isComment (starts with #), isEmpty }`.
 
-## 6. 核心功能详细设计
+## 6. Core Feature Design
 
-### 6.1 首页（Mode 概览）
-- 顶部：**根目录选择器**（下拉展示历史根目录，可新增/删除；切换后重新扫描，waive 状态按根目录隔离）
-- 主体：三个 mode 区块（ac/dc/func），存在才展示；每区列出全部 check item，显示状态徽标与 report 路径
-- 点击 item → 进入详情页
+### 6.1 Home dashboard (mode overview)
+- Top bar: **root directory selector** (dropdown of historical roots; add / delete; re-scan on switch; waive state isolated per root).
+- Global **name filter** search box filters check items by name across all modes.
+- Overview section: counts of pass / fail / to-be-review / other, and total check count.
+- Per-mode card (ac / dc / func, shown only if present): a Segmented status filter (All / Pass / Fail / Review), then every check item as a trace row with a **status LED** and a **status chip** (Pass=green, Fail=red, To be review=amber, pass by waive=green, other=neutral).
+- Clicking an item navigates to the detail page.
 
-### 6.2 详情页（report 逐行检查）
-- 顶部工具栏：
-  - **正则过滤框**：输入正则（区分大小写，勾选项），支持 `&&` 连接多个条件（AND，全部满足才命中），"包含即匹配"
-  - **匹配 / 反匹配** 开关：匹配=仅显示命中的行；反匹配=排除命中的行
-  - **"选中所有显示的行"** 按钮、**"清空选择"** 按钮
-  - **Export Waiver** 按钮
-- 行展示：
-  - 每行前有勾选框；**注释行（`#` 开头）与空行无勾选框**（非 violation 内容）
-  - **已 waive（导出成功）的行**：灰色背景 + 勾选框禁用，刷新后仍保持（SQLite 持久化）
-  - **勾选中（未导出）的行**：灰色背景，可再点击勾选框取消恢复原色（刷新后还原，不持久化）
-- 详情正文中识别出的 `/xxx/xxx` 路径显示为可点击链接，点击→新页面加载该文件内容（同样支持正则过滤与勾选，共享 waive 状态）
-- 表格(csv/xlsx)形式 report 亦按文本行展示，勾选/过滤/waive 完全一致
+### 6.2 Detail page (line-by-line inspection)
+- Top header: Back button, `[MODE] item`, status chip (including `pass by waive`), clickable report path, Agent Copilot button.
+- **Toolbar (two fixed rows)**:
+  - Row 1 (filters): regex search box (`&&` joins multiple patterns with AND, contains-match), **Case sensitive** switch, **Exclude matches** switch, **Hide waived** switch.
+  - Row 2 (actions): a single **toggle button** — "Select all visible rows (N)" when nothing is selected, otherwise "Clear selection (M)" — plus **Export Waiver**. The two-row layout keeps the buttons from reflowing when the label length changes.
+- **Side item list**: all items of the current mode with their status; clicking switches the detail item.
+- Line rendering:
+  - Checkbox per row; **comment (`#`) and empty lines have no checkbox**.
+  - **Waived (exported) rows**: grey background, strikethrough on the text, a `waived` tag, and a disabled checkbox; persisted in SQLite and retained after refresh.
+  - **Temporarily selected (not yet exported) rows**: highlighted; clearing the selection restores the original color (not persisted).
+  - `Hide waived` removes waived rows from the visible list.
+- Paths like `/xxx/xxx` inside line text are clickable → open the file in the File Viewer page (same filter/select/waive behaviors, shared waive state).
+- csv/xlsx reports are displayed as text lines with identical selection/filter/waive behavior.
 
-### 6.3 waive 输出流程
-1. 用户勾选行（临时变灰）
-2. 点击 **Export Waiver** → 弹出对话框输入 **waive reason**（必填）
-3. 确认后写入文件，格式：
-```
-# Waive Item: <item 名>
-# Waive Reason: <reason>
-<violation 行1>
-<violation 行2>
-```
-4. 写入成功后：本次勾选的行变为**永久灰色**（禁用勾选框，持久化到 SQLite，刷新保留）；弹 toast 提示
-5. 保存目录：每个根目录首次导出时弹出**目录树浏览对话框**（后端文件系统树 + 手动输入绝对路径），确定后记住（SQLite），后续不再询问
+### 6.3 Waive export flow
+1. The user selects rows (temporarily highlighted).
+2. Click **Export Waiver** → dialog asks for a **waive reason** (required).
+3. Confirmation appends to the waive list file in the format:
+   ```
+   # Waive Item: <item name>
+   # Waive Reason: <reason>
+   <violation line 1>
+   <violation line 2>
+   ```
+4. On success, the exported rows become **permanently grey** (disabled checkbox, persisted to SQLite, retained after refresh) and a toast shows the file path + row count (created vs appended).
+5. **Waive save directory**: chosen through the directory-picker dialog on export when no directory is remembered. **Re-selection timing**: the remembered directory is cleared only when (a) the home dashboard is opened via a full page reload (F5), or (b) the root is switched to a different root. SPA navigation back to the dashboard and re-entering the detail page do **not** re-trigger directory selection.
 
-### 6.4 waive 文件规则
-- 文件名：`{waive_dir}/{mode}.waive_val.list`（如 `ac.waive_val.list`），按 mode 分文件
-- 文件已存在 → **直接追加**，并提示用户"基于原有文件追加"
-- 文件不存在 → 创建新文件写入
-- **允许重复**：同一行内容可多次追加，不做去重
-- 同 item 多次导出 → 追加新的 `# Waive Item:` 块
+### 6.4 Waive file rules
+- File name: `{waive_dir}/{mode}.waive_val.list` (one file per mode).
+- Existing file → **append** and inform the user ("appended to existing waive file").
+- Missing file → create and write.
+- **Duplicates allowed**: the same row may be appended repeatedly (no de-duplication).
+- Multiple exports of the same item → additional `# Waive Item:` blocks.
 
-### 6.5 Agent Copilot（AI 悬浮窗）
-- 详情页提供 **"Agent Copilot"** 按钮 → 打开**可拖拽/缩放悬浮窗**，含：
-  - **信息输出区**（agent 回复，SSE 流式滚动显示，markdown 渲染）
-  - **聊天输入区** + 发送按钮；可关闭悬浮窗，再次打开同一 item 恢复原 session 与历史
-- **session 按 item 固定**：键 = `(rootId, mode, itemName)`，映射存 SQLite
-  - 首次打开：`POST /session` 创建 opencode session 并记录映射
-  - 再次打开：`GET /session/:id/message` 加载历史消息回显
-- 首次打开时，**预制 prompt + 该 item 的 report/log 内容**预置到输入框（可编辑），用户**手动点发送**才提交
-- 预制 prompt：内置通用分析模板（含 mode/item/status/log），可通过配置文件 `server/config/copilot-prompts.json` 覆盖
-- 发送流程：`POST /session/:id/message`（后端代理），同时订阅 opencode `/event` SSE，将回复 part 实时转发给前端
+### 6.5 Status override: "pass by waive"
+- If **every checkable line** (non-comment, non-empty) of a check item is persisted as waived, the item's status becomes **`pass by waive`** instead of the summary status (e.g. fail).
+- Applied on both the scan (`GET /modes`) and the item detail endpoint, so the home chip, the detail bar chip, and the side list all reflect it. The detail page refreshes its chip after each export.
+- `pass by waive` is grouped under **Pass** in the overview statistics and status filters; the chip label renders as "PASS BY WAIVE" in green.
 
-### 6.6 opencode serve 生命周期
-- 后端启动时：检测 `:4096` 是否已运行 opencode；未运行则 `spawn opencode serve --hostname 127.0.0.1 --port 4096`
-- 端口被占用且非 opencode → 自动尝试 `4096+n`，并持久化实际端口
-- 后端退出时释放子进程（可选设置 `OPENCODE_SERVER_PASSWORD` 启用鉴权）
+### 6.6 Agent Copilot (AI floating panel)
+- Detail page **Agent Copilot** button opens a floating panel with:
+  - **Output area** (agent reply, SSE streaming, markdown-rendered).
+  - **Chat input** + send button; the panel can be docked to the right edge, resized from the corner/edge, collapsed to a hover-preview tab, and restored.
+- **One session per item**: key = `(rootId, mode, itemName)`, mapping stored in SQLite.
+  - First open: creates an opencode session (`POST /session`) and records the mapping.
+  - Reopen: loads the history (`GET /session/:id/message`) and restores the session.
+- On first open, a **preset prompt + the item's report/log content** is pre-filled into the input (editable); it is sent only when the user clicks Send.
+- Preset prompt: built-in generic analysis template (mode/item/status/log placeholders), overridable via `server/config.js` defaults.
+- Sending: `POST /session/:id/message` (backend proxy) while subscribing to the opencode `/event` SSE stream; only the assistant's reply parts are forwarded to the frontend.
 
-## 7. API 设计（后端）
+### 6.7 Root deletion
+- Deleting a root removes its `waived_lines`, `copilot_sessions` rows, and the root itself.
+- It also best-effort deletes the associated opencode sessions via the opencode API (`DELETE /session/:id`); the response reports how many opencode sessions were deleted (`deletedOpencodeSessions`).
 
-| 方法 | 路径 | 说明 |
+### 6.8 Agent connection & opencode serve lifecycle
+
+**Connection modes** (selected by environment variables, no code changes):
+- **Remote mode** — when `OPENCODE_BASE_URL` is set (e.g. a company intranet opencode server): the backend connects directly to that URL and **skips** local probing/spawning. A startup health check against `${base}/global/health` logs success or a warning but never blocks boot.
+- **Local mode (default)** — when `OPENCODE_BASE_URL` is unset: probe `127.0.0.1:{OPENCODE_PORT}` for an existing `opencode serve`; attach if healthy, otherwise **spawn** `opencode serve --hostname 127.0.0.1 --port <p>`, trying ports `4096..4105`; throw if none available.
+
+**Configuration environment variables:**
+
+| Variable | Default | Notes |
 |---|---|---|
-| GET | `/api/roots` | 根目录列表 |
-| POST | `/api/roots` | 新增根目录 |
-| DELETE | `/api/roots/:id` | 删除根目录 |
-| GET | `/api/roots/:id/modes` | 扫描并返回各 mode 及其 items |
-| GET | `/api/roots/:id/modes/:mode/items/:item` | 返回 report 内容（行列表） |
-| GET | `/api/roots/:id/modes/:mode/items/:item/waived` | 该 item 已 waive 的行 |
-| POST | `/api/roots/:id/modes/:mode/items/:item/waive` | 导出 waive（body: `{ reason, lines[] }`），检测文件存在并追加 |
-| GET | `/api/roots/:id/modes/:mode/waive-file` | 读取当前 waive 文件内容 |
-| POST | `/api/roots/:id/waive-dir` | 设置 waive 保存目录 |
-| GET | `/api/browse?path=` | 目录树浏览 |
-| GET | `/api/copilot/:rootId/:mode/:item` | 获取 session 信息与历史 |
-| POST | `/api/copilot/:rootId/:mode/:item/message` | 发送消息 |
-| GET | `/api/copilot/:rootId/:mode/:item/stream` | SSE 流式转发 |
+| `OPENCODE_BASE_URL` | *(unset)* | Remote opencode server base URL; setting it switches to remote mode. |
+| `OPENCODE_TOKEN` | *(empty)* | Sent as `Authorization: Bearer <token>` on every opencode REST + SSE request (company servers with auth). |
+| `OPENCODE_PORT` | `4096` | Local opencode port; only used when `OPENCODE_BASE_URL` is unset. |
+| `OPENWEB_PORT` | `5173` | Web server port. |
+| `OPENWEB_HOST` | `0.0.0.0` | Web server bind address; `0.0.0.0` exposes it on the LAN. |
+| `OPENWEB_DATA_DIR` | `server/data` | Directory for the SQLite database. |
 
-## 8. 数据库 Schema（SQLite）
+**Auth**: the bearer token is applied uniformly by `authHeaders()` in `server/src/services/opencode.js` — both for REST calls and the `/event` SSE stream. If the target server uses a different header/scheme, that single function is the only place to adjust.
+
+**Model / provider**: configured inside opencode itself (CLI or `~/.config/opencode/opencode.json`), not in OpenWeb; in remote mode the server operator controls it.
+
+**Lifecycle**: on backend exit, the spawned local child process is released (graceful SIGINT/SIGTERM handler).
+
+## 7. API Design (backend)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/roots` | list root directories |
+| POST | `/api/roots` | add a root directory |
+| DELETE | `/api/roots/:id` | delete root + waive/session cascades + best-effort opencode session cleanup |
+| GET | `/api/roots/:id/modes` | scan and return modes + items (waive-aware status) |
+| GET | `/api/roots/:id/modes/:mode/items/:item` | item detail: lines + persisted waive flags + status |
+| GET | `/api/roots/:id/modes/:mode/items/:item/waived` | persisted waived rows of the item |
+| POST | `/api/roots/:id/modes/:mode/items/:item/waive` | export waive (body `{ reason, lines[] }`); detects existing file and appends |
+| GET | `/api/roots/:id/modes/:mode/waive-file` | read current waive list file content |
+| GET | `/api/roots/:id/waive-dir` | read remembered waive save directory |
+| POST | `/api/roots/:id/waive-dir` | set the waive save directory |
+| DELETE | `/api/roots/:id/waive-dir` | clear the remembered waive save directory |
+| GET | `/api/browse?path=` | browse directory tree |
+| GET | `/api/file/content?path=&rootId=&mode=&item=` | load any file, optionally merged with waive flags |
+| GET | `/api/copilot/:rootId/:mode/:item` | session info + history + preset |
+| POST | `/api/copilot/:rootId/:mode/:item/ensure` | create session if missing |
+| POST | `/api/copilot/:rootId/:mode/:item/message` | send a message |
+| GET | `/api/copilot/:rootId/:mode/:item/stream` | SSE stream (forwarded assistant reply parts) |
+
+## 8. Database Schema (SQLite)
 
 ```sql
 CREATE TABLE roots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   path TEXT NOT NULL UNIQUE,
-  waive_dir TEXT,            -- 记住的 waive 保存目录
+  waive_dir TEXT,            -- remembered waive save directory
   created_at TEXT DEFAULT (datetime('now'))
 );
-CREATE TABLE waived_lines (   -- 永久 waive 状态
+CREATE TABLE waived_lines (   -- permanent waive state
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   root_id INTEGER NOT NULL,
   mode TEXT NOT NULL,
   item TEXT NOT NULL,
-  line_no INTEGER NOT NULL,   -- 基于行号
-  content TEXT NOT NULL,      -- 行内容（用于恢复展示）
+  line_no INTEGER NOT NULL,   -- keyed by line number
+  content TEXT NOT NULL,      -- row content (for display restore)
   waive_reason TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   UNIQUE(root_id, mode, item, line_no)
@@ -182,20 +220,20 @@ CREATE TABLE copilot_sessions (
 );
 ```
 
-## 9. 边界情况与注意点
+## 9. Edge Cases & Notes
 
-1. report 文件不存在 → 详情页显示提示，不可勾选
-2. summary.json 某个 item 的 Report 为空 → 显示占位
-3. 大文件性能 → 前端虚拟滚动（仅渲染可视区域），过滤在前端内存完成
-4. xlsx 大文件 → 仅读首个 sheet、限制行数上限（可配置，默认 100k 行）
-5. waive 目录变更 → 再次导出时若文件已存在，仍追加并提示
-6. 根目录被删除 → 其 SQLite 记录（waive 状态、session 映射）一并删除，避免悬挂
-7. opencode session 被清理/丢失 → 检测 `GET /session/:id` 失败则重建 session
-8. 同一 item 多用户并行编辑不在范围内（单机工具）
+1. Report file missing → detail page shows a placeholder; lines are not selectable.
+2. An item's `Report` is empty → placeholder shown.
+3. Large files → frontend renders only the visible window; filtering happens in memory.
+4. Large xlsx → only the first sheet is read, row count capped (configurable, default 100 000).
+5. Waive directory change → a later export still appends to the existing file and informs the user.
+6. Root deletion → its SQLite records (waive state, session mapping) and associated opencode sessions are removed to avoid dangling data.
+7. opencode session lost/cleaned → a failed `GET /session/:id` triggers session recreation.
+8. Concurrent multi-user editing of the same item is out of scope (single-machine tool).
 
-## 10. 开发阶段划分
+## 10. Development Phases
 
-1. **阶段一（基础框架）**：项目脚手架、数据库、根目录管理、报告扫描与 mode 概览页
-2. **阶段二（详情页）**：report 加载(text/csv/xlsx)、逐行展示、正则过滤、勾选与 waive 输出、永久灰色持久化、waive 文件追加、目录树选择
-3. **阶段三（Agent Copilot）**：opencode serve 拉起、session 映射与恢复、悬浮窗、SSE 流式、预制 prompt
-4. **阶段四（完善）**：文件路径点击加载、边界情况、UI 打磨、示例数据验证
+1. **Phase 1 (foundation)**: scaffold, database, root management, report scanning, mode overview page.
+2. **Phase 2 (detail page)**: report loading (text/csv/xlsx), line rendering, regex filtering, selection + waive export, permanent grey persistence, waive file append, directory picker.
+3. **Phase 3 (Agent Copilot)**: opencode serve bootstrap, session mapping & restore, floating panel, SSE streaming, preset prompt.
+4. **Phase 4 (polish & status semantics)**: clickable file paths, pass-by-waive status, hide-waived / exclude switches, merged action button, two-row toolbar, waive-dir re-selection timing, copilot dock/resize/preview, UI polish, sample-data verification.

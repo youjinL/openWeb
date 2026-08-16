@@ -6,7 +6,6 @@ import {
   Input,
   Checkbox,
   Switch,
-  Radio,
   message,
   Modal,
   Spin,
@@ -32,6 +31,7 @@ export default function FileViewer() {
   const [filter, setFilter] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [invert, setInvert] = useState(false);
+  const [hideWaived, setHideWaived] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [waiveDirModal, setWaiveDirModal] = useState(false);
   const [reasonModal, setReasonModal] = useState(false);
@@ -71,10 +71,13 @@ export default function FileViewer() {
   }, [filter, caseSensitive]);
 
   const visibleLines = useMemo(() => {
-    if (patterns.length === 0) return lines;
     const hit = (t: string) => patterns.every((p) => p.test(t));
-    return lines.filter((l) => (invert ? !hit(l.text) : hit(l.text)));
-  }, [lines, patterns, invert]);
+    return lines.filter((l) => {
+      if (hideWaived && l.waived) return false;
+      if (patterns.length === 0) return true;
+      return invert ? !hit(l.text) : hit(l.text);
+    });
+  }, [lines, patterns, invert, hideWaived]);
 
   const selectableInView = useMemo(
     () => visibleLines.filter((l) => !l.isComment && !l.isEmpty && !l.waived),
@@ -142,17 +145,27 @@ export default function FileViewer() {
             <label className="filter-label">
               Case sensitive <Switch size="small" checked={caseSensitive} onChange={setCaseSensitive} />
             </label>
-            <Radio.Group value={invert ? 'exclude' : 'include'} onChange={(e) => setInvert(e.target.value === 'exclude')} size="small">
-              <Radio.Button value="include">Match</Radio.Button>
-              <Radio.Button value="exclude">Exclude</Radio.Button>
-            </Radio.Group>
+            <label className="filter-label">
+              Exclude matches <Switch size="small" checked={invert} onChange={setInvert} />
+            </label>
+            <label className="filter-label">
+              Hide waived <Switch size="small" checked={hideWaived} onChange={setHideWaived} />
+            </label>
           </div>
           {canWaive && (
             <div className="detail-actions">
-              <Button icon={<CheckSquareOutlined />} onClick={() => setSelected(new Set(selectableInView.map((l) => l.lineNo)))}>
-                Select all visible rows ({selectableInView.length})
+              <Button
+                icon={selected.size === 0 ? <CheckSquareOutlined /> : <ClearOutlined />}
+                onClick={() =>
+                  selected.size === 0
+                    ? setSelected(new Set(selectableInView.map((l) => l.lineNo)))
+                    : setSelected(new Set())
+                }
+              >
+                {selected.size === 0
+                  ? `Select all visible rows (${selectableInView.length})`
+                  : `Clear selection (${selected.size})`}
               </Button>
-              <Button icon={<ClearOutlined />} onClick={() => setSelected(new Set())}>Clear selection ({selected.size})</Button>
               <Button type="primary" icon={<ExportOutlined />} onClick={onExport} loading={exporting}>Export Waiver</Button>
             </div>
           )}

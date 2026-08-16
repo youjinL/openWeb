@@ -1,74 +1,168 @@
-# OpenWeb - SDC/CDC Report Checker
+# OpenWeb — SDCV Dashboard
 
-对 IC 验证（SDC/CDC）报告的三模式（**ac / dc / func**）验证结果进行 **解析 → 逐行检查 → AI 辅助分析 → waive 输出** 的全链路 Web 工具。
+An end-to-end web tool for IC verification (SDC/CDC) report review across three modes (**ac / dc / func**), following the workflow **parse → line-by-line inspection → AI-assisted analysis → waive export**.
 
-详细需求见 [`development.md`](./development.md)。
+- Requirement specification: [`development.md`](./development.md)
+- Delivery / implementation details: [`details.md`](./details.md)
 
-## 环境要求
+## Environment Requirements
 
-- WSL Ubuntu（项目运行于 WSL 内）
-- Node.js 22+（建议通过 nvm 安装）
-- opencode CLI（用于 Agent Copilot；通过 `npm install -g opencode-ai` 在 WSL 内安装）
+- WSL Ubuntu (the project is designed to run inside WSL)
+- Node.js 22+ (recommended via nvm)
+- opencode CLI — required for the Agent Copilot feature (`npm install -g opencode-ai`, installed inside WSL)
 
-## 安装
+## Installation
 
 ```bash
 npm install
 ```
 
-若 WSL 内没有 opencode，安装：
+If `opencode` is not installed inside WSL:
 
 ```bash
 npm install -g opencode-ai
-opencode auth login   # 配置 LLM 提供商，否则 copilot 无法对话
+opencode auth login   # configure an LLM provider, otherwise the copilot cannot chat
 ```
 
-## 启动
+## Running
 
-开发模式（前后端热更新）：
+### Development mode (hot-reload frontend + backend)
 
 ```bash
 npm run dev
 ```
 
-- Web 后端 API + 静态文件：`http://localhost:5173`
-- Vite 前端 dev server（代理 `/api` 到 5173）：`http://localhost:5174`
+- Web backend (API + static files): `http://localhost:5173`
+- Vite frontend dev server (proxies `/api` to 5173): `http://localhost:5174`
 
-生产模式（构建前端并由后端一体提供）：
+> Note: after changing frontend source code, run `npm run build` so that the static bundle served on `:5173` is up to date (`:5174` serves the source directly). Backend changes require restarting the dev server.
+
+### Production mode (build the frontend, serve everything from one port)
 
 ```bash
 npm start
 ```
 
-- 访问 `http://localhost:5173`
+- Open `http://localhost:5173`
 
-### 后台运行 / 停止（WSL）
+### Run in the background / stop (WSL)
 
 ```bash
-bash scripts/start.sh   # 后台启动 Web 后端（自动拉起 opencode serve）
-bash scripts/stop.sh    # 停止 Web 后端
+bash scripts/start.sh   # start the web backend in the background (opencode serve is started automatically)
+bash scripts/stop.sh    # stop the web backend
 ```
 
-## 功能
+## Feature Overview
 
-- **首页**：选择/新增根目录 → 自动扫描 `{mode}_sdcV_summary/rpt/{mode}_summary.json`，按 mode（ac/dc/func）展示各 check item 及状态
-- **详情页**：report 内容逐行展示（text/csv/xlsx），支持：
-  - 正则过滤（区分大小写、`&&` 多条件 AND、匹配/反匹配）
-  - 逐行勾选 waive；注释行/空行不参与
-  - Export Waiver：填写 reason → 输出到 `{mode}.waive_val.list`（已存在则追加并提示）
-  - 已导出行永久灰色（持久化），刷新保留；未导出勾选刷新即还原
-  - 详情中 `/xxx/xxx` 路径可点击，新页面加载内容
-- **Agent Copilot**：可拖拽悬浮窗，复用 opencode session（按 item 固定，可继续对话），首条预制 prompt + report 内容自动填入，SSE 流式显示回复
+- **Home dashboard**: select / add / delete root directories; auto-scans `{mode}_sdcV_summary/rpt/{mode}_summary.json` and lists every check item per mode (ac / dc / func) with a status LED and status chip.
+- **Detail page**: line-by-line report inspection (text / csv / xlsx), supporting:
+  - Regex filtering with `&&` multi-pattern AND, case-sensitive, exclude-matches, and hide-waived switches
+  - Per-row selection for waiving; comment (`#`) and empty lines are not selectable
+  - **Export Waiver**: enter a reason → appends to `{mode}.waive_val.list` (existing files are appended to)
+  - Exported rows turn grey with strikethrough and a `waived` tag, persisted in SQLite; refreshing keeps them
+  - When all checkable rows of an item are waived, the item's status becomes **"pass by waive"** instead of fail
+- **Agent Copilot**: a dockable / resizable floating panel that reuses a fixed opencode session per check item; a preset prompt plus the report content is pre-filled (not auto-sent); replies stream via SSE with markdown rendering.
 
-## 端口
+## Agent (Copilot) Configuration
 
-| 服务 | 端口 |
+OpenWeb's backend talks to an **`opencode serve`** server over HTTP (REST + SSE). The backend supports **two connection modes**, chosen by environment variables — no frontend or code changes are required to switch.
+
+### Connection modes
+
+| Mode | When | Behavior |
+|---|---|---|
+| **Local (default)** | `OPENCODE_BASE_URL` is **not** set | Backend probes `127.0.0.1:{OPENCODE_PORT}` (default 4096), attaches to an already-running `opencode serve`, or **spawns one automatically** (`opencode serve --hostname 127.0.0.1 --port <p>`). |
+| **Remote (intranet/company)** | `OPENCODE_BASE_URL` is set | Backend connects **directly** to that server and **skips** local probing/spawning. A startup health check runs against `/global/health` (warn-only, never blocks boot). REST calls and the SSE event stream are both forwarded to the remote URL. |
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENCODE_BASE_URL` | *(unset)* | Remote opencode server base URL, e.g. `http://opencode.corp.internal:4096`. Setting it switches to remote mode. |
+| `OPENCODE_TOKEN` | *(empty)* | Bearer token; sent as `Authorization: Bearer <token>` on every opencode REST + SSE request (for company servers with auth). |
+| `OPENCODE_PORT` | `4096` | Local opencode port — used only when `OPENCODE_BASE_URL` is unset. |
+| `OPENWEB_PORT` | `5173` | Web server port. |
+| `OPENWEB_HOST` | `0.0.0.0` | Web server bind address; `0.0.0.0` makes it reachable from the LAN. |
+| `OPENWEB_DATA_DIR` | `server/data` | Directory for the SQLite database. |
+
+### Connect to a company / intranet opencode server
+
+1. Get from the opencode operator: the base URL, the port, and (if enabled) an auth token.
+2. Start the backend with the variables set:
+   ```bash
+   OPENCODE_BASE_URL=http://opencode.corp.internal:4096 \
+   OPENCODE_TOKEN=<token-if-any> \
+   OPENWEB_HOST=0.0.0.0 \
+   npm start
+   ```
+3. Confirm the startup log shows `[opencode] connected to remote server at ...`.
+4. Smoke test: open a check item's detail page and start **Agent Copilot**; replies stream via SSE from the remote server.
+
+> If the company server expects a different auth header or scheme than `Authorization: Bearer <token>`, adjust `authHeaders()` in `server/src/services/opencode.js` (one function).
+
+### Change the model / provider (the actual AI)
+
+The model and provider are configured **inside opencode itself**, not in OpenWeb:
+
+- **Local mode**: run the `opencode` CLI to pick a model, or edit `~/.config/opencode/opencode.json` (provider, model, API key). No OpenWeb code change.
+- **Remote mode**: ask the company server operator to set the model there; OpenWeb simply talks to their server.
+
+### Customize the copilot's preset prompt
+
+The first-message template lives in `server/src/config.js` → `defaultPrompts[0].template` (placeholders `{mode}`, `{item}`, `{status}`, `{reportPath}`, `{log}`). Edit it and restart the backend to change what the agent is asked to do on first open.
+
+## Deployment on a Company Linux Server
+
+The project runs on any Linux host (no WSL required). To make it available on the intranet:
+
+1. **Install Node.js 22+** (system package or nvm) on the host.
+2. **Build and install**:
+   ```bash
+   npm install
+   npm run build        # builds web/dist (production bundle)
+   ```
+3. **Run** with environment variables (remote agent / LAN access):
+   ```bash
+   OPENCODE_BASE_URL=http://opencode.corp.internal:4096 \
+   OPENCODE_TOKEN=<token-if-any> \
+   OPENWEB_HOST=0.0.0.0 \
+   OPENWEB_PORT=5173 \
+   node server/src/index.js
+   ```
+   Colleagues then open `http://<host-ip>:5173`. No opencode CLI is needed on this machine when `OPENCODE_BASE_URL` is set.
+4. **Auto-start with systemd** (recommended for a shared server): create `/etc/systemd/system/openweb.service`:
+   ```ini
+   [Unit]
+   Description=OpenWeb SDCV Dashboard
+   After=network.target
+
+   [Service]
+   WorkingDirectory=/path/to/openWeb
+   Environment=OPENCODE_BASE_URL=http://opencode.corp.internal:4096
+   Environment=OPENCODE_TOKEN=<token-if-any>
+   Environment=OPENWEB_HOST=0.0.0.0
+   Environment=OPENWEB_PORT=5173
+   ExecStart=/usr/bin/node server/src/index.js
+   Restart=on-failure
+   User=<run-as-user>
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   Then `sudo systemctl enable --now openweb`.
+
+> **Security**: the app has no built-in authentication. On a trusted intranet, direct LAN access is acceptable; if exposed more broadly, put an nginx reverse proxy in front with basic auth / corporate SSO and HTTPS.
+
+## Ports
+
+| Service | Port |
 |---|---|
-| Web 后端（API + 静态） | 5173 |
+| Web backend (API + static) | 5173 |
 | Vite dev server | 5174 |
-| opencode serve | 4096（被占用则自动 +1） |
+| opencode serve | 4096 (auto-increments if busy) |
 
-## 数据存储
+## Data Storage
 
-- SQLite：`server/data/openweb.db`（根目录配置、waive 状态、item↔session 映射）
-- opencode session：由 opencode 自身管理
+- SQLite: `server/data/openweb.db` — root directories, persisted waive state, item↔opencode-session mapping
+- Waive list files: `{waive_dir}/{mode}.waive_val.list` (append-only, one file per mode)
+- opencode sessions: managed by opencode itself

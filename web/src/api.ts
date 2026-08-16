@@ -36,6 +36,7 @@ export const api = {
   getWaiveDir: (rootId: number) => req<any>(`/roots/${rootId}/waive-dir`),
   setWaiveDir: (rootId: number, dir: string) =>
     req<any>(`/roots/${rootId}/waive-dir`, { method: 'POST', body: JSON.stringify({ dir }) }),
+  clearWaiveDir: (rootId: number) => req<any>(`/roots/${rootId}/waive-dir`, { method: 'DELETE' }),
   exportWaive: (rootId: number, mode: string, item: string, reason: string, lines: { lineNo: number; text: string }[]) =>
     req<any>(`/roots/${rootId}/modes/${mode}/items/${encodeURIComponent(item)}/waive`, {
       method: 'POST',
