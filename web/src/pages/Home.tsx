@@ -129,7 +129,7 @@ export default function Home() {
         <div className="benchbar-brand">
           <span className="benchbar-mark" />
           openWeb
-          <span className="benchbar-sub">SDC/CDC Sign-off Bench</span>
+          <span className="benchbar-sub">SDCV Dashboard</span>
         </div>
         <div className="benchbar-actions">
           <Select

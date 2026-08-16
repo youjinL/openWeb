@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Button, Input, message, Spin } from 'antd';
-import { CloseOutlined, SendOutlined, RobotOutlined } from '@ant-design/icons';
+import { Button, Input, message, Spin, Tooltip } from 'antd';
+import {
+  CloseOutlined,
+  SendOutlined,
+  RobotOutlined,
+  VerticalRightOutlined,
+  ExpandOutlined,
+} from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../api';
-import type { CopilotInfo, CopilotMessage } from '../types';
+import type { CopilotInfo } from '../types';
 
 interface Props {
   rootId: number;
@@ -18,11 +24,16 @@ interface StreamMsg {
   text: string;
 }
 
+type ResizeKind = 'corner' | 'right' | 'bottom';
+
 export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
   const [pos, setPos] = useState({ x: Math.max(20, window.innerWidth - 480), y: 60 });
   const [size, setSize] = useState({ w: 460, h: 560 });
+  const [docked, setDocked] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
-  const resizeRef = useRef<{ sx: number; sy: number; w: number; h: number } | null>(null);
+  const resizeRef = useRef<{ sx: number; sy: number; w: number; h: number; kind: ResizeKind } | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
 
   const [msgs, setMsgs] = useState<StreamMsg[]>([]);
   const [pending, setPending] = useState<Record<string, string>>({});
@@ -32,6 +43,26 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
   const esRef = useRef<EventSource | null>(null);
   const pendingRef = useRef<Record<string, string>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const streaming = sending || Object.keys(pending).length > 0;
+
+  const clearHoverTimer = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  };
+
+  const armHoverHide = () => {
+    clearHoverTimer();
+    hoverTimerRef.current = window.setTimeout(() => setPreviewVisible(false), 200);
+  };
+
+  const restoreFloating = useCallback(() => {
+    clearHoverTimer();
+    setPreviewVisible(false);
+    setDocked(false);
+  }, []);
 
   const scrollBottom = () => {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
@@ -118,6 +149,7 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
   }, [pending]);
 
   const onMouseDown = (e: React.MouseEvent) => {
+    if (docked || previewVisible) return;
     dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
     const move = (ev: MouseEvent) => {
       if (dragRef.current)
@@ -132,12 +164,16 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
     window.addEventListener('mouseup', up);
   };
 
-  const onResizeDown = (e: React.MouseEvent) => {
-    resizeRef.current = { sx: e.clientX, sy: e.clientY, w: size.w, h: size.h };
+  const onResizeDown = (e: React.MouseEvent, kind: ResizeKind) => {
+    e.preventDefault();
+    if (docked || previewVisible) return;
+    resizeRef.current = { sx: e.clientX, sy: e.clientY, w: size.w, h: size.h, kind };
     const move = (ev: MouseEvent) => {
       if (resizeRef.current) {
-        const { sx, sy, w, h } = resizeRef.current;
-        setSize({ w: Math.max(320, w + ev.clientX - sx), h: Math.max(320, h + ev.clientY - sy) });
+        const { sx, sy, w, h, kind } = resizeRef.current;
+        const dw = kind === 'right' || kind === 'corner' ? ev.clientX - sx : 0;
+        const dh = kind === 'bottom' || kind === 'corner' ? ev.clientY - sy : 0;
+        setSize({ w: Math.max(320, w + dw), h: Math.max(320, h + dh) });
       }
     };
     const up = () => {
@@ -160,14 +196,17 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
     );
   };
 
-  return (
+  const renderPanel = (preview: boolean) => (
     <div
+      className={preview ? 'copilot-panel copilot-panel-preview' : 'copilot-panel'}
       style={{
         position: 'fixed',
-        left: pos.x,
-        top: pos.y,
-        width: size.w,
-        height: size.h,
+        left: preview ? undefined : pos.x,
+        top: preview ? '50%' : pos.y,
+        right: preview ? 36 : undefined,
+        transform: preview ? 'translateY(-50%)' : undefined,
+        width: preview ? Math.min(size.w, window.innerWidth - 24) : size.w,
+        height: preview ? Math.min(size.h, window.innerHeight - 24) : size.h,
         background: '#fff',
         border: '1px solid #e3e1db',
         borderRadius: 12,
@@ -177,15 +216,17 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
         flexDirection: 'column',
         overflow: 'hidden',
       }}
+      onMouseEnter={preview ? clearHoverTimer : undefined}
+      onMouseLeave={preview ? armHoverHide : undefined}
     >
       <div
-        onMouseDown={onMouseDown}
+        onMouseDown={preview ? undefined : onMouseDown}
         style={{
           padding: '8px 12px',
           background: 'var(--paper)',
           borderBottom: '1px solid var(--line)',
           color: 'var(--ink)',
-          cursor: 'move',
+          cursor: preview ? 'default' : 'move',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -199,7 +240,34 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
           <RobotOutlined style={{ marginRight: 8 }} />
           Agent Copilot
         </span>
-        <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClose} style={{ color: 'var(--ink-2)' }} />
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {preview ? (
+            <Tooltip title="Restore floating">
+              <Button
+                type="text"
+                size="small"
+                icon={<ExpandOutlined />}
+                onClick={restoreFloating}
+                aria-label="Restore floating"
+                style={{ color: 'var(--ink-2)' }}
+              />
+            </Tooltip>
+          ) : (
+            <Tooltip title="Dock to sidebar">
+              <Button
+                type="text"
+                size="small"
+                icon={<VerticalRightOutlined />}
+                onClick={() => setDocked(true)}
+                aria-label="Dock to sidebar"
+                style={{ color: 'var(--ink-2)' }}
+              />
+            </Tooltip>
+          )}
+          <Tooltip title="Close">
+            <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClose} aria-label="Close" style={{ color: 'var(--ink-2)' }} />
+          </Tooltip>
+        </span>
       </div>
 
       <div
@@ -273,17 +341,46 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
         />
         <Button type="primary" icon={<SendOutlined />} onClick={send} loading={sending} />
       </div>
-      <div
-        onMouseDown={onResizeDown}
-        style={{
-          position: 'absolute',
-          right: 0,
-          bottom: 0,
-          width: 16,
-          height: 16,
-          cursor: 'nwse-resize',
-        }}
-      />
+
+      {!preview && (
+        <>
+          <div
+            onMouseDown={(e) => onResizeDown(e, 'right')}
+            style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'ew-resize' }}
+          />
+          <div
+            onMouseDown={(e) => onResizeDown(e, 'bottom')}
+            style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 8, cursor: 'ns-resize' }}
+          />
+          <div
+            onMouseDown={(e) => onResizeDown(e, 'corner')}
+            style={{ position: 'absolute', right: 0, bottom: 0, width: 16, height: 16, cursor: 'nwse-resize' }}
+          />
+        </>
+      )}
     </div>
+  );
+
+  return (
+    <>
+      {docked && (
+        <button
+          className="copilot-dock"
+          onClick={restoreFloating}
+          onMouseEnter={() => {
+            clearHoverTimer();
+            setPreviewVisible(true);
+          }}
+          onMouseLeave={armHoverHide}
+          aria-label="Restore copilot floating window"
+          title="Restore floating"
+        >
+          <span className={`copilot-dock-led${streaming ? ' is-live' : ''}`} />
+          <span className="copilot-dock-label">Copilot</span>
+        </button>
+      )}
+      {!docked && renderPanel(false)}
+      {docked && previewVisible && renderPanel(true)}
+    </>
   );
 }

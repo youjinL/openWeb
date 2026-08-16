@@ -150,6 +150,7 @@ export default function Detail() {
 
   const switchItem = (name: string) => {
     if (name === item) return;
+    setCopilotOpen(false);
     setFilter('');
     setSelected(new Set());
     setCaseSensitive(false);
