@@ -97,6 +97,31 @@ router.post('/:rootId/:mode/:item/message', async (req, res) => {
   res.json({ sessionID: mapping.session_id });
 });
 
+router.get('/:rootId/:mode/:item/skills', async (req, res) => {
+  const { rootId, mode, item } = req.params;
+  if (!MODES.includes(mode)) return res.status(400).json({ error: 'unknown mode' });
+  try {
+    const skills = await oc.listSkills();
+    res.json({ skills });
+  } catch (e) {
+    res.status(502).json({ error: `failed to list skills: ${e.message}` });
+  }
+});
+
+router.post('/permission/:requestID/reply', async (req, res) => {
+  const { requestID } = req.params;
+  const { reply, message } = req.body ?? {};
+  if (!['once', 'always', 'reject'].includes(reply)) {
+    return res.status(400).json({ error: "reply must be one of 'once' | 'always' | 'reject'" });
+  }
+  try {
+    await oc.replyPermission(requestID, reply, message);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: `failed to reply permission: ${e.message}` });
+  }
+});
+
 router.get('/:rootId/:mode/:item/stream', (req, res) => {
   const { rootId, mode, item } = req.params;
   const mapping = getMapping(Number(rootId), mode, item);
@@ -122,19 +147,34 @@ router.get('/:rootId/:mode/:item/stream', (req, res) => {
         currentAIMessageID = part.messageID;
         return;
       }
-      if (currentAIMessageID && part?.messageID === currentAIMessageID && part?.text) {
-        send('part', {
-          messageID: part.messageID,
-          partID: part.id,
-          text: part.text,
-          type: part.type === 'reasoning' ? 'reasoning' : 'text',
-        });
+      if (currentAIMessageID && part?.messageID === currentAIMessageID) {
+        if (part.type === 'tool') {
+          send('part', {
+            messageID: part.messageID,
+            partID: part.id,
+            type: 'tool',
+            tool: part.tool,
+            callID: part.callID,
+            state: part.state,
+          });
+        } else if (part?.text) {
+          send('part', {
+            messageID: part.messageID,
+            partID: part.id,
+            text: part.text,
+            type: part.type === 'reasoning' ? 'reasoning' : 'text',
+          });
+        }
       }
     } else if (eventName === 'message.updated' && data?.info?.time?.completed) {
       send('done', { messageID: data?.info?.id });
       currentAIMessageID = null;
     } else if (eventName === 'message.part.error') {
       send('error', { message: 'agent reply failed' });
+    } else if (eventName === 'permission.asked') {
+      send('permission', data);
+    } else if (eventName === 'permission.replied') {
+      send('permission:replied', data);
     }
   });
 
@@ -147,12 +187,39 @@ router.get('/:rootId/:mode/:item/stream', (req, res) => {
 });
 
 function normalizeMessage(m) {
-  const text = (m?.parts ?? [])
-    .filter((p) => p?.type === 'text' || p?.text)
+  const parts = m?.parts ?? [];
+  const text = parts
+    .filter((p) => p?.type === 'text')
     .map((p) => p.text ?? '')
     .join('\n');
+  const reasoning = parts
+    .filter((p) => p?.type === 'reasoning')
+    .map((p) => p.text ?? '')
+    .join('\n');
+  const tools = parts
+    .filter((p) => p?.type === 'tool')
+    .map((p) => ({
+      callID: p?.callID ?? '',
+      tool: p?.tool ?? 'tool',
+      status: p?.state?.status ?? 'pending',
+      input: toolInputText(p?.state?.input),
+      title: p?.state?.title ?? '',
+      output: p?.state?.metadata?.output ?? p?.state?.output ?? '',
+      error: p?.state?.error ?? '',
+    }));
   const role = m?.info?.role ?? 'user';
-  return { id: m?.info?.id, role, text };
+  return { id: m?.info?.id, role, text, reasoning, tools };
+}
+
+function toolInputText(input) {
+  if (!input) return '';
+  if (typeof input === 'string') return input;
+  if (typeof input.command === 'string') return input.command;
+  try {
+    return JSON.stringify(input, null, 1);
+  } catch {
+    return String(input);
+  }
 }
 
 export default router;

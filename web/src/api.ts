@@ -57,4 +57,11 @@ export const api = {
     }),
   copilotStreamUrl: (rootId: number, mode: string, item: string) =>
     `${BASE}/copilot/${rootId}/${mode}/${encodeURIComponent(item)}/stream`,
+  copilotSkills: (rootId: number, mode: string, item: string) =>
+    req<any>(`/copilot/${rootId}/${mode}/${encodeURIComponent(item)}/skills`),
+  copilotPermissionReply: (requestID: string, reply: 'once' | 'always' | 'reject', message?: string) =>
+    req<any>(`/copilot/permission/${encodeURIComponent(requestID)}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ reply, message }),
+    }),
 };

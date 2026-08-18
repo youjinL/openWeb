@@ -1,15 +1,30 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Button, Input, message, Spin, Tooltip } from 'antd';
+import { Button, Input, message, Popover, Spin, Tooltip } from 'antd';
 import {
   CloseOutlined,
   SendOutlined,
   RobotOutlined,
   VerticalRightOutlined,
   ExpandOutlined,
+  ThunderboltOutlined,
+  CheckOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { remarkHighlightMark } from 'remark-highlight-mark';
+import { visit } from 'unist-util-visit';
+import rehypeHighlight from 'rehype-highlight';
+
+function remarkMarkHName() {
+  return (tree: any) => {
+    visit(tree, 'highlight', (node: any) => {
+      node.data = { ...(node.data ?? {}), hName: 'mark' };
+    });
+  };
+}
 import { api } from '../api';
-import type { CopilotInfo } from '../types';
+import type { CopilotInfo, CopilotTool, PermissionRequest, SkillInfo } from '../types';
 
 interface Props {
   rootId: number;
@@ -22,6 +37,14 @@ interface StreamMsg {
   id: string;
   role: string;
   text: string;
+  reasoning?: string;
+  tools?: CopilotTool[];
+}
+
+interface PendingMsg {
+  reasoning: string;
+  text: string;
+  tools: CopilotTool[];
 }
 
 type ResizeKind = 'corner' | 'right' | 'bottom';
@@ -36,12 +59,16 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
   const hoverTimerRef = useRef<number | null>(null);
 
   const [msgs, setMsgs] = useState<StreamMsg[]>([]);
-  const [pending, setPending] = useState<Record<string, string>>({});
+  const [pending, setPending] = useState<Record<string, PendingMsg>>({});
+  const [pendingPerms, setPendingPerms] = useState<PermissionRequest[]>([]);
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [skillsLoading, setSkillsLoading] = useState(false);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const esRef = useRef<EventSource | null>(null);
-  const pendingRef = useRef<Record<string, string>>({});
+  const pendingRef = useRef<Record<string, PendingMsg>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const streaming = sending || Object.keys(pending).length > 0;
@@ -68,6 +95,33 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
   };
 
+  function upsertTool(list: CopilotTool[], d: any) {
+    const st = d.state ?? {};
+    const view: CopilotTool = {
+      callID: d.callID,
+      tool: d.tool ?? 'tool',
+      status: st.status ?? 'pending',
+      input: toolInputText(st.input),
+      title: st.title ?? '',
+      output: st.metadata?.output ?? st.output ?? '',
+      error: st.error ?? '',
+    };
+    const idx = list.findIndex((t) => t.callID === view.callID);
+    if (idx >= 0) list[idx] = view;
+    else list.push(view);
+  }
+
+  function toolInputText(input: any): string {
+    if (!input) return '';
+    if (typeof input === 'string') return input;
+    if (typeof input.command === 'string') return input.command;
+    try {
+      return JSON.stringify(input, null, 1);
+    } catch {
+      return String(input);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -78,7 +132,15 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
           info = await api.copilot(rootId, mode, item);
         }
         if (cancelled) return;
-        setMsgs(info.messages.map((m) => ({ id: m.id ?? Math.random().toString(36), role: m.role, text: m.text })));
+        setMsgs(
+          info.messages.map((m) => ({
+            id: m.id ?? Math.random().toString(36),
+            role: m.role,
+            text: m.text,
+            reasoning: m.reasoning,
+            tools: m.tools,
+          })),
+        );
         if (info.preset) setInput(info.preset);
         openStream(info.sessionID!);
       } catch (e: any) {
@@ -100,10 +162,16 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
     esRef.current = es;
     es.addEventListener('part', (ev: any) => {
       const d = JSON.parse(ev.data);
-      pendingRef.current = {
-        ...pendingRef.current,
-        [d.messageID]: (pendingRef.current[d.messageID] ?? '') + (d.text ?? ''),
-      };
+      const id = d.messageID;
+      const cur: PendingMsg = pendingRef.current[id] ?? { reasoning: '', text: '', tools: [] };
+      if (d.type === 'reasoning') {
+        cur.reasoning += d.text ?? '';
+      } else if (d.type === 'tool') {
+        upsertTool(cur.tools, d);
+      } else {
+        cur.text += d.text ?? '';
+      }
+      pendingRef.current = { ...pendingRef.current, [id]: cur };
       setPending(pendingRef.current);
       scrollBottom();
     });
@@ -113,8 +181,46 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
     es.addEventListener('error', () => {
       setSending(false);
     });
+    es.addEventListener('permission', (ev: any) => {
+      const d = JSON.parse(ev.data);
+      setPendingPerms((prev) => (prev.some((p) => p.id === d?.id) ? prev : [...prev, d]));
+    });
+    es.addEventListener('permission:replied', (ev: any) => {
+      const d = JSON.parse(ev.data);
+      if (d?.requestID) setPendingPerms((prev) => prev.filter((p) => p.id !== d.requestID));
+    });
     void sessionID;
   };
+
+  const replyPermission = useCallback(async (id: string, reply: 'once' | 'always' | 'reject') => {
+    try {
+      await api.copilotPermissionReply(id, reply);
+      setPendingPerms((prev) => prev.filter((p) => p.id !== id));
+    } catch (e: any) {
+      message.error('Permission reply failed: ' + (e.message ?? String(e)));
+    }
+  }, []);
+
+  const loadSkills = useCallback(async () => {
+    setSkillsLoading(true);
+    try {
+      const res = await api.copilotSkills(rootId, mode, item);
+      setSkills(res?.skills ?? []);
+    } catch (e: any) {
+      message.error('Failed to load skills: ' + (e.message ?? String(e)));
+    } finally {
+      setSkillsLoading(false);
+    }
+  }, [rootId, mode, item]);
+
+  const applySkill = useCallback(
+    (s: SkillInfo) => {
+      setSkillsOpen(false);
+      const directive = `Please load and use the skill "${s.name}" (${s.description}), following its guidance to complete the task.\n\n`;
+      setInput((prev) => (prev ? prev + '\n' + directive : directive));
+    },
+    [],
+  );
 
   const send = useCallback(async () => {
     const content = input.trim();
@@ -134,9 +240,14 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
   }, [input, rootId, mode, item]);
 
   const finalizeDone = useCallback(() => {
-    const entries = Object.entries(pendingRef.current).filter(([, text]) => text);
+    const entries = Object.entries(pendingRef.current).filter(
+      ([, m]) => m.text || m.reasoning || m.tools.length > 0,
+    );
     if (entries.length) {
-      setMsgs((prev) => [...prev, ...entries.map(([id, text]) => ({ id, role: 'assistant', text }))]);
+      setMsgs((prev) => [
+        ...prev,
+        ...entries.map(([id, m]) => ({ id, role: 'assistant', text: m.text, reasoning: m.reasoning, tools: m.tools })),
+      ]);
     }
     pendingRef.current = {};
     setPending({});
@@ -185,16 +296,127 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
     window.addEventListener('mouseup', up);
   };
 
-  const renderBody = (m: StreamMsg) => {
+  const renderTool = (t: CopilotTool) => (
+    <div key={t.callID} className={`copilot-tool is-${t.status}`}>
+      <div className="copilot-tool-head">
+        <span className="copilot-tool-dot" />
+        <span className="copilot-tool-name">{t.tool}</span>
+        <span className="copilot-tool-status">{t.status}</span>
+      </div>
+      {t.input && (
+        <div className="copilot-tool-input">
+          <pre>{t.input}</pre>
+        </div>
+      )}
+      {t.title && t.title !== t.input && <div className="copilot-tool-title">{t.title}</div>}
+      {t.error && <div className="copilot-tool-error">{t.error}</div>}
+      {t.output && (
+        <details className="copilot-tool-output">
+          <summary>output</summary>
+          <pre>{t.output}</pre>
+        </details>
+      )}
+    </div>
+  );
+
+const renderAssistant = (m: { text: string; reasoning?: string; tools?: CopilotTool[] }) => (
+    <div className="copilot-output">
+      {m.tools && m.tools.length > 0 && (
+        <div className="copilot-tools">{m.tools.map((t) => renderTool(t))}</div>
+      )}
+      {m.reasoning && (
+        <details className="copilot-reasoning">
+          <summary>Reasoning</summary>
+          <div>{m.reasoning}</div>
+        </details>
+      )}
+      {m.text && (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkHighlightMark, remarkMarkHName]}
+          rehypePlugins={[[rehypeHighlight, { detect: true, subset: ['bash', 'js', 'json', 'python', 'xml', 'yaml', 'diff', 'text'] }]]}
+        >
+          {m.text}
+        </ReactMarkdown>
+      )}
+    </div>
+  );
+
+const renderBody = (m: StreamMsg) => {
     if (m.role === 'user') {
       return <div className="copilot-output" style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>;
     }
+    return renderAssistant(m);
+  };
+
+  const renderPermissionBanner = () => {
+    if (pendingPerms.length === 0) return null;
     return (
-      <div className="copilot-output">
-        <ReactMarkdown>{m.text}</ReactMarkdown>
+      <div
+        style={{
+          padding: '8px 12px',
+          background: '#fdf6ec',
+          borderTop: '1px solid var(--line)',
+          borderBottom: '1px solid var(--line)',
+          fontSize: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          maxHeight: 180,
+          overflow: 'auto',
+        }}
+      >
+        {pendingPerms.map((p) => (
+          <div key={p.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontFamily: 'var(--mono)', fontWeight: 600, color: 'var(--ink)' }}>
+                Permission · {p.permission}
+              </span>
+              <span style={{ color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>agent waiting</span>
+            </div>
+            <div style={{ color: 'var(--ink-2)', fontFamily: 'var(--mono)', wordBreak: 'break-all' }}>
+              {p.patterns?.length ? p.patterns.join('  ·  ') : p.always?.join(', ') ?? ''}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <Button size="small" icon={<CheckOutlined />} onClick={() => replyPermission(p.id, 'once')}>
+                Allow once
+              </Button>
+              <Button size="small" onClick={() => replyPermission(p.id, 'always')}>
+                Always
+              </Button>
+              <Button size="small" danger icon={<StopOutlined />} onClick={() => replyPermission(p.id, 'reject')}>
+                Reject
+              </Button>
+            </div>
+          </div>
+        ))}
       </div>
     );
   };
+
+  const renderSkillPicker = () => (
+    <div style={{ width: 300, maxHeight: 320, overflow: 'auto', fontSize: 12 }}>
+      {skillsLoading && (
+        <div style={{ textAlign: 'center', padding: 12 }}>
+          <Spin size="small" />
+        </div>
+      )}
+      {!skillsLoading && skills.length === 0 && (
+        <div style={{ color: 'var(--ink-3)', padding: 12, textAlign: 'center' }}>No skills available</div>
+      )}
+      {skills.map((s) => (
+        <div
+          key={s.name}
+          onClick={() => applySkill(s)}
+          style={{ padding: '8px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)', background: '#fff' }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--accent-bg)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}
+        >
+          <div style={{ fontFamily: 'var(--mono)', fontWeight: 600, color: 'var(--ink)' }}>{s.name}</div>
+          <div style={{ color: 'var(--ink-2)', marginTop: 2 }}>{s.description}</div>
+        </div>
+      ))}
+    </div>
+  );
 
   const renderPanel = (preview: boolean) => (
     <div
@@ -303,30 +525,45 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
             {renderBody(m)}
           </div>
         ))}
-        {Object.entries(pending).filter(([, t]) => t).map(([id, text]) => (
-          <div
-            key={id}
-            style={{
-              alignSelf: 'flex-start',
-              maxWidth: '92%',
-              padding: '8px 12px',
-              borderRadius: 8,
-              background: '#fff',
-              color: 'var(--ink)',
-              border: '1px solid #e8e6e1',
-              fontSize: 13,
-            }}
-          >
-            <div className="copilot-output">
-              <ReactMarkdown>{text}</ReactMarkdown>
+        {Object.entries(pending)
+          .filter(([, m]) => m.text || m.reasoning || m.tools.length > 0)
+          .map(([id, m]) => (
+            <div
+              key={id}
+              style={{
+                alignSelf: 'flex-start',
+                maxWidth: '92%',
+                padding: '8px 12px',
+                borderRadius: 8,
+                background: '#fff',
+                color: 'var(--ink)',
+                border: '1px solid #e8e6e1',
+                fontSize: 13,
+              }}
+            >
+              {renderAssistant(m)}
+              {sending && <Spin size="small" style={{ marginTop: 6 }} />}
             </div>
-            {sending && <Spin size="small" style={{ marginTop: 6 }} />}
-          </div>
-        ))}
+          ))}
         <div ref={bottomRef} />
       </div>
 
-      <div style={{ padding: 8, borderTop: '1px solid #e8e6e1', display: 'flex', gap: 8 }}>
+      {renderPermissionBanner()}
+
+      <div style={{ padding: 8, borderTop: '1px solid #e8e6e1', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+        <Popover
+          open={skillsOpen}
+          onOpenChange={(open) => {
+            setSkillsOpen(open);
+            if (open && skills.length === 0 && !skillsLoading) loadSkills();
+          }}
+          trigger="click"
+          placement="topLeft"
+          arrow={false}
+          content={renderSkillPicker()}
+        >
+          <Button icon={<ThunderboltOutlined />} aria-label="Add skill" title="Add skill" />
+        </Popover>
         <Input.TextArea
           value={input}
           onChange={(e) => setInput(e.target.value)}

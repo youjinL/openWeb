@@ -610,12 +610,345 @@ body {
 /* ---------------- Copilot 悬浮窗 ---------------- */
 
 .copilot-output {
-  white-space: pre-wrap;
   word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .copilot-output p {
   margin: 0 0 8px;
+}
+
+.copilot-output h1,
+.copilot-output h2,
+.copilot-output h3,
+.copilot-output h4,
+.copilot-output h5 {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--ink);
+  margin: 12px 0 6px;
+  line-height: 1.3;
+}
+
+.copilot-output h1 {
+  font-size: 16px;
+}
+
+.copilot-output h2 {
+  font-size: 15px;
+}
+
+.copilot-output h3 {
+  font-size: 14px;
+}
+
+.copilot-output h4,
+.copilot-output h5 {
+  font-size: 13px;
+}
+
+.copilot-output ul,
+.copilot-output ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.copilot-output li {
+  margin-bottom: 2px;
+}
+
+.copilot-output strong {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.copilot-output em {
+  font-style: italic;
+}
+
+.copilot-output del {
+  color: var(--ink-3);
+  text-decoration: line-through;
+  text-decoration-color: rgba(138, 145, 156, 0.6);
+}
+
+.copilot-output mark {
+  background: rgba(169, 132, 80, 0.22);
+  color: var(--ink);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.copilot-output li.task-list-item {
+  list-style: none;
+  margin-left: -20px;
+}
+
+.copilot-output li.task-list-item input[type='checkbox'] {
+  margin-right: 6px;
+  accent-color: var(--accent);
+  cursor: default;
+}
+
+.copilot-output a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.copilot-output blockquote {
+  margin: 0 0 8px;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--line-strong);
+  color: var(--ink-2);
+}
+
+.copilot-output hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 12px 0;
+}
+
+.copilot-output table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  max-width: 100%;
+}
+
+.copilot-output th,
+.copilot-output td {
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.copilot-output th {
+  background: var(--paper);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.copilot-output code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  background: rgba(47, 52, 59, 0.06);
+  border-radius: 4px;
+  padding: 1px 4px;
+  color: var(--ink);
+}
+
+.copilot-output pre {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  background: #f0efe9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 0 0 8px;
+  white-space: pre;
+}
+
+.copilot-output pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+  border-radius: 0;
+}
+
+/* highlight.js tokens (paper-muted theme, scoped to copilot) */
+
+.copilot-output .hljs-keyword,
+.copilot-output .hljs-selector-tag,
+.copilot-output .hljs-meta,
+.copilot-output .hljs-doctag {
+  color: #9c5f5f;
+}
+
+.copilot-output .hljs-string,
+.copilot-output .hljs-regexp,
+.copilot-output .hljs-attr,
+.copilot-output .hljs-template-variable {
+  color: #6e8b7e;
+}
+
+.copilot-output .hljs-number,
+.copilot-output .hljs-literal,
+.copilot-output .hljs-symbol,
+.copilot-output .hljs-bullet,
+.copilot-output .hljs-params {
+  color: #a98450;
+}
+
+.copilot-output .hljs-title,
+.copilot-output .hljs-title.function_,
+.copilot-output .hljs-section,
+.copilot-output .hljs-built_in,
+.copilot-output .hljs-type,
+.copilot-output .hljs-class .hljs-title,
+.copilot-output .hljs-name {
+  color: #4c6b8c;
+}
+
+.copilot-output .hljs-comment,
+.copilot-output .hljs-quote,
+.copilot-output .hljs-emphasis {
+  color: #8a909a;
+  font-style: italic;
+}
+
+.copilot-output .hljs-variable,
+.copilot-output .hljs-selector-id,
+.copilot-output .hljs-selector-class,
+.copilot-output .hljs-attribute {
+  color: #5f6670;
+}
+
+.copilot-output .hljs-tag,
+.copilot-output .hljs-punctuation {
+  color: #8a909a;
+}
+
+/* 工具调用 ledger（对齐 opencode TUI 的 tool 展示） */
+
+.copilot-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.copilot-tool {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfaf8;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  overflow: hidden;
+}
+
+.copilot-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+}
+
+.copilot-tool-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.copilot-tool.is-running .copilot-tool-dot {
+  background: var(--accent);
+  animation: copilot-led-pulse 1.4s ease-in-out infinite;
+}
+
+.copilot-tool.is-completed .copilot-tool-dot {
+  background: var(--pass);
+}
+
+.copilot-tool.is-error .copilot-tool-dot {
+  background: var(--fail);
+}
+
+.copilot-tool-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.copilot-tool-status {
+  margin-left: auto;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.copilot-tool-input pre {
+  margin: 0;
+  padding: 6px 10px;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.copilot-tool-title {
+  padding: 4px 10px 6px;
+  color: var(--ink);
+}
+
+.copilot-tool-error {
+  padding: 6px 10px;
+  color: var(--fail);
+  border-top: 1px solid var(--line);
+}
+
+.copilot-tool-output {
+  border-top: 1px solid var(--line);
+}
+
+.copilot-tool-output summary {
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  user-select: none;
+}
+
+.copilot-tool-output pre {
+  margin: 0;
+  padding: 6px 10px 10px;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+/* reasoning 折叠块（默认收起，点击展开） */
+
+.copilot-reasoning {
+  margin-bottom: 8px;
+  border-left: 2px solid var(--line-strong);
+  padding-left: 10px;
+}
+
+.copilot-reasoning summary {
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.copilot-reasoning summary:hover {
+  color: var(--ink-2);
+}
+
+.copilot-reasoning > div {
+  margin-top: 4px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
 }
 
 /* Copilot 停靠 shelf tab（侧边停靠时的“探针支架”） */

@@ -45,6 +45,18 @@ export interface CopilotMessage {
   id?: string;
   role: string;
   text: string;
+  reasoning?: string;
+  tools?: CopilotTool[];
+}
+
+export interface CopilotTool {
+  callID: string;
+  tool: string;
+  status: 'pending' | 'running' | 'completed' | 'error';
+  input: string;
+  title: string;
+  output: string;
+  error: string;
 }
 
 export interface CopilotInfo {
@@ -54,6 +66,23 @@ export interface CopilotInfo {
   preset: string;
   status: string;
   reportPath: string | null;
+}
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  location: string;
+  content: string;
+}
+
+export interface PermissionRequest {
+  id: string;
+  sessionID: string;
+  permission: string;
+  patterns: string[];
+  metadata: Record<string, unknown>;
+  always: string[];
+  tool?: { messageID: string; callID: string };
 }
 
 export interface WaiveResult {

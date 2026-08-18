@@ -172,6 +172,17 @@ export function deleteSession(id) {
   });
 }
 
+export function listSkills() {
+  return ocFetch('/skill');
+}
+
+export function replyPermission(requestID, reply, message) {
+  return ocFetch(`/permission/${encodeURIComponent(requestID)}/reply`, {
+    method: 'POST',
+    body: JSON.stringify({ reply, ...(message ? { message } : {}) }),
+  });
+}
+
 /* ---------------- SSE event proxy ---------------- */
 
 const eventsBus = new EventEmitter();
