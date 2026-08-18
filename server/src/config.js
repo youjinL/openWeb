@@ -5,6 +5,11 @@ function envInt(name, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function envBool(name) {
+  const v = process.env[name]?.toLowerCase();
+  return v === 'true' || v === '1' || v === 'yes';
+}
+
 function envStr(name, fallback = '') {
   const v = process.env[name];
   return v == null || v === '' ? fallback : v;
@@ -16,6 +21,10 @@ export default {
   opencodePort: envInt('OPENCODE_PORT', 4096),
   opencodeBaseUrl: envStr('OPENCODE_BASE_URL', '').replace(/\/+$/, ''),
   opencodeToken: envStr('OPENCODE_TOKEN', ''),
+  opencodeUsername: envStr('OPENCODE_USERNAME', 'opencode'),
+  opencodePassword: envStr('OPENCODE_PASSWORD', ''),
+  opencodeScanRange: envStr('OPENCODE_SCAN_RANGE', '4000-6000'),
+  noSpawn: envBool('OPENCODE_NO_SPAWN'),
   maxXlsxRows: 100000,
   dataDir: envStr('OPENWEB_DATA_DIR', new URL('../data/', import.meta.url).pathname),
   defaultPrompts: [

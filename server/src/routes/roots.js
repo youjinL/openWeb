@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { db } from '../db.js';
+import { asyncHandler } from '../asyncHandler.js';
 import * as oc from '../services/opencode.js';
 
 const router = express.Router();
@@ -30,7 +31,7 @@ router.post('/', (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const sessions = db.prepare('SELECT session_id FROM copilot_sessions WHERE root_id = ?').all(id);
   let deletedSessions = 0;
@@ -46,6 +47,6 @@ router.delete('/:id', async (req, res) => {
   db.prepare('DELETE FROM waived_lines WHERE root_id = ?').run(id);
   db.prepare('DELETE FROM copilot_sessions WHERE root_id = ?').run(id);
   res.json({ deleted: delRoot.changes > 0, deletedOpencodeSessions: deletedSessions });
-});
+}));
 
 export default router;

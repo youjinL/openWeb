@@ -17,6 +17,9 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
       msg = body?.message ?? body?.error ?? msg;
     } catch (e: any) {
       if (e?.noWaiveDir) throw e;
+      const text = await res.text().catch(() => '');
+      const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (snippet) msg = `${msg}: ${snippet}`;
     }
     throw new Error(msg);
   }

@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { scanRoot, MODES } from '../services/report.js';
 import { loadReport } from '../services/loader.js';
 import { getWaivedLines } from '../services/waive.js';
+import { asyncHandler } from '../asyncHandler.js';
 
 const router = express.Router();
 
@@ -35,16 +36,16 @@ async function applyWaiveStatus(root, scanned) {
   return scanned;
 }
 
-router.get('/:rootId/modes', async (req, res) => {
+router.get('/:rootId/modes', asyncHandler(async (req, res) => {
   const root = requireRoot(req, res);
   if (!root) return;
   const scanned = scanRoot(root.path);
   if (!scanned) return res.status(400).json({ error: 'root not accessible' });
   await applyWaiveStatus(root, scanned);
   res.json(scanned);
-});
+}));
 
-router.get('/:rootId/modes/:mode/items/:item', async (req, res) => {
+router.get('/:rootId/modes/:mode/items/:item', asyncHandler(async (req, res) => {
   const root = requireRoot(req, res);
   if (!root) return;
   const { mode, item } = req.params;
@@ -71,6 +72,6 @@ router.get('/:rootId/modes/:mode/items/:item', async (req, res) => {
     lines,
     waivedInfo: waived,
   });
-});
+}));
 
 export default router;

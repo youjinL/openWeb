@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import config from '../config.js';
 import { scanRoot, MODES } from '../services/report.js';
 import { loadReport } from '../services/loader.js';
+import { asyncHandler } from '../asyncHandler.js';
 import * as oc from '../services/opencode.js';
 
 const router = express.Router();
@@ -42,7 +43,7 @@ async function buildPreset(rootId, mode, item) {
   return { preset, status: itemData.status, reportPath: itemData.report };
 }
 
-router.get('/:rootId/:mode/:item', async (req, res) => {
+router.get('/:rootId/:mode/:item', asyncHandler(async (req, res) => {
   const { rootId, mode, item } = req.params;
   if (!MODES.includes(mode)) return res.status(400).json({ error: 'unknown mode' });
   const mapping = getMapping(Number(rootId), mode, item);
@@ -66,9 +67,9 @@ router.get('/:rootId/:mode/:item', async (req, res) => {
     status: presetInfo?.status ?? '',
     reportPath: presetInfo?.reportPath ?? null,
   });
-});
+}));
 
-router.post('/:rootId/:mode/:item/ensure', async (req, res) => {
+router.post('/:rootId/:mode/:item/ensure', asyncHandler(async (req, res) => {
   const { rootId, mode, item } = req.params;
   const rid = Number(rootId);
   const mapping = getMapping(rid, mode, item);
@@ -83,9 +84,9 @@ router.post('/:rootId/:mode/:item/ensure', async (req, res) => {
   const created = await oc.createSession(`${mode} / ${item}`);
   saveMapping(rid, mode, item, created.id);
   res.json({ sessionID: created.id, sessionExists: false });
-});
+}));
 
-router.post('/:rootId/:mode/:item/message', async (req, res) => {
+router.post('/:rootId/:mode/:item/message', asyncHandler(async (req, res) => {
   const { rootId, mode, item } = req.params;
   const { content } = req.body ?? {};
   if (!content || !String(content).trim()) return res.status(400).json({ error: 'message is required' });
@@ -95,9 +96,9 @@ router.post('/:rootId/:mode/:item/message', async (req, res) => {
     parts: [{ type: 'text', text: String(content) }],
   });
   res.json({ sessionID: mapping.session_id });
-});
+}));
 
-router.get('/:rootId/:mode/:item/skills', async (req, res) => {
+router.get('/:rootId/:mode/:item/skills', asyncHandler(async (req, res) => {
   const { rootId, mode, item } = req.params;
   if (!MODES.includes(mode)) return res.status(400).json({ error: 'unknown mode' });
   try {
@@ -106,9 +107,9 @@ router.get('/:rootId/:mode/:item/skills', async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: `failed to list skills: ${e.message}` });
   }
-});
+}));
 
-router.post('/permission/:requestID/reply', async (req, res) => {
+router.post('/permission/:requestID/reply', asyncHandler(async (req, res) => {
   const { requestID } = req.params;
   const { reply, message } = req.body ?? {};
   if (!['once', 'always', 'reject'].includes(reply)) {
@@ -120,9 +121,9 @@ router.post('/permission/:requestID/reply', async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: `failed to reply permission: ${e.message}` });
   }
-});
+}));
 
-router.get('/:rootId/:mode/:item/stream', (req, res) => {
+router.get('/:rootId/:mode/:item/stream', asyncHandler((req, res) => {
   const { rootId, mode, item } = req.params;
   const mapping = getMapping(Number(rootId), mode, item);
   if (!mapping) return res.status(404).json({ error: 'session not found' });
@@ -132,6 +133,7 @@ router.get('/:rootId/:mode/:item/stream', (req, res) => {
     'content-type': 'text/event-stream',
     'cache-control': 'no-cache',
     connection: 'keep-alive',
+    'x-accel-buffering': 'no',
   });
   const send = (event, data) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -184,7 +186,7 @@ router.get('/:rootId/:mode/:item/stream', (req, res) => {
     unsub();
     res.end();
   });
-});
+}));
 
 function normalizeMessage(m) {
   const parts = m?.parts ?? [];
