@@ -22,6 +22,7 @@ import { api } from '../api';
 import type { ItemDetail, CheckItem, ScanResult } from '../types';
 import WaiveDirModal from '../components/WaiveDirModal';
 import CopilotPanel from '../components/CopilotPanel';
+import { useCopilotOpen, saveCopilotPrefs } from '../copilotStore';
 
 const PATH_RE = /\/[A-Za-z0-9_.~+-]+(?:\/[A-Za-z0-9_.~+-]+)+/g;
 
@@ -80,7 +81,7 @@ export default function Detail() {
   const [reasonModal, setReasonModal] = useState(false);
   const [reason, setReason] = useState('');
   const [exporting, setExporting] = useState(false);
-  const [copilotOpen, setCopilotOpen] = useState(false);
+  const copilotOpen = useCopilotOpen(rootId, mode, item);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -153,7 +154,6 @@ export default function Detail() {
 
   const switchItem = (name: string) => {
     if (name === item) return;
-    setCopilotOpen(false);
     setFilter('');
     setSelected(new Set());
     setCaseSensitive(false);
@@ -223,14 +223,6 @@ export default function Detail() {
     'pass by waive': 's-pass',
   };
 
-  if (loading || !detail) {
-    return (
-      <div className="bench-loading">
-        <Spin size="large" />
-      </div>
-    );
-  }
-
   return (
     <>
       <header className="detailbar">
@@ -240,17 +232,22 @@ export default function Detail() {
         <span className="detailbar-item">
           [{mode.toUpperCase()}] {item}
         </span>
-        <span className={`status-chip ${statusColor[detail.status] ?? 's-neutral'}`}>{detail.status}</span>
-        <Tooltip title={detail.reportPath}>
-          <span className="detailbar-path">{detail.reportPath}</span>
+        <span className={`status-chip ${statusColor[detail?.status ?? ''] ?? 's-neutral'}`}>{detail?.status}</span>
+        <Tooltip title={detail?.reportPath}>
+          <span className="detailbar-path">{detail?.reportPath}</span>
         </Tooltip>
         <div style={{ flex: 1 }} />
-        <Button icon={<RobotOutlined />} type="primary" onClick={() => setCopilotOpen(true)}>
+        <Button icon={<RobotOutlined />} type="primary" onClick={() => saveCopilotPrefs(rootId, mode, item, { open: true })}>
           Agent Copilot
         </Button>
       </header>
 
       <main className="bench">
+        {loading || !detail ? (
+          <div className="bench-loading">
+            <Spin size="large" />
+          </div>
+        ) : (
         <div className="detail-layout">
           <aside className="detail-side">
             <div className="side-head">
@@ -361,6 +358,7 @@ export default function Detail() {
         )}
           </div>
         </div>
+        )}
       </main>
 
       <WaiveDirModal
@@ -390,7 +388,12 @@ export default function Detail() {
       </Modal>
 
       {copilotOpen && (
-        <CopilotPanel rootId={rootId} mode={mode} item={item} onClose={() => setCopilotOpen(false)} />
+        <CopilotPanel
+          rootId={rootId}
+          mode={mode}
+          item={item}
+          onClose={() => saveCopilotPrefs(rootId, mode, item, { open: false })}
+        />
       )}
     </>
   );

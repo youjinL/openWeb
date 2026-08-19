@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/api.ts","./src/main.tsx","./src/types.ts","./src/components/CopilotPanel.tsx","./src/components/WaiveDirModal.tsx","./src/pages/Detail.tsx","./src/pages/FileViewer.tsx","./src/pages/Home.tsx"],"version":"5.9.3"}
+{"root":["./src/App.tsx","./src/api.ts","./src/copilotStore.ts","./src/main.tsx","./src/types.ts","./src/components/CopilotPanel.tsx","./src/components/WaiveDirModal.tsx","./src/pages/Detail.tsx","./src/pages/FileViewer.tsx","./src/pages/Home.tsx"],"version":"5.9.3"}

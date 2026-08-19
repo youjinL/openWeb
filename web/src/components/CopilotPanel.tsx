@@ -25,6 +25,7 @@ function remarkMarkHName() {
 }
 import { api } from '../api';
 import type { CopilotInfo, CopilotTool, PermissionRequest, SkillInfo } from '../types';
+import { useCopilotPrefs, saveCopilotPrefs } from '../copilotStore';
 
 interface Props {
   rootId: number;
@@ -50,9 +51,10 @@ interface PendingMsg {
 type ResizeKind = 'corner' | 'right' | 'bottom';
 
 export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
-  const [pos, setPos] = useState({ x: Math.max(20, window.innerWidth - 480), y: 60 });
-  const [size, setSize] = useState({ w: 460, h: 560 });
-  const [docked, setDocked] = useState(false);
+  const prefs = useCopilotPrefs(rootId, mode, item);
+  const pos = { x: prefs?.x ?? Math.max(20, window.innerWidth - 480), y: prefs?.y ?? 60 };
+  const size = { w: prefs?.w ?? 460, h: prefs?.h ?? 560 };
+  const docked = prefs?.docked ?? false;
   const [previewVisible, setPreviewVisible] = useState(false);
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
   const resizeRef = useRef<{ sx: number; sy: number; w: number; h: number; kind: ResizeKind } | null>(null);
@@ -88,8 +90,8 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
   const restoreFloating = useCallback(() => {
     clearHoverTimer();
     setPreviewVisible(false);
-    setDocked(false);
-  }, []);
+    saveCopilotPrefs(rootId, mode, item, { docked: false });
+  }, [rootId, mode, item]);
 
   const scrollBottom = () => {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
@@ -124,6 +126,11 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
 
   useEffect(() => {
     let cancelled = false;
+    setMsgs([]);
+    setPending({});
+    pendingRef.current = {};
+    setPendingPerms([]);
+    setInitializing(true);
     (async () => {
       try {
         let info: CopilotInfo = await api.copilot(rootId, mode, item);
@@ -264,7 +271,10 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
     dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
     const move = (ev: MouseEvent) => {
       if (dragRef.current)
-        setPos({ x: ev.clientX - dragRef.current.dx, y: ev.clientY - dragRef.current.dy });
+        saveCopilotPrefs(rootId, mode, item, {
+          x: ev.clientX - dragRef.current.dx,
+          y: ev.clientY - dragRef.current.dy,
+        });
     };
     const up = () => {
       dragRef.current = null;
@@ -284,7 +294,7 @@ export default function CopilotPanel({ rootId, mode, item, onClose }: Props) {
         const { sx, sy, w, h, kind } = resizeRef.current;
         const dw = kind === 'right' || kind === 'corner' ? ev.clientX - sx : 0;
         const dh = kind === 'bottom' || kind === 'corner' ? ev.clientY - sy : 0;
-        setSize({ w: Math.max(320, w + dw), h: Math.max(320, h + dh) });
+        saveCopilotPrefs(rootId, mode, item, { w: Math.max(320, w + dw), h: Math.max(320, h + dh) });
       }
     };
     const up = () => {
@@ -480,7 +490,7 @@ const renderBody = (m: StreamMsg) => {
                 type="text"
                 size="small"
                 icon={<VerticalRightOutlined />}
-                onClick={() => setDocked(true)}
+                onClick={() => saveCopilotPrefs(rootId, mode, item, { docked: true })}
                 aria-label="Dock to sidebar"
                 style={{ color: 'var(--ink-2)' }}
               />
